@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
-import { pb } from './client'
+import pb from './client'
 import { TenantRecord, UserPerfil, UserRecord, ModuloId } from '@/types/gestec'
+import { validarDependenciasModulo } from '@/services/entitlements'
 
 interface AuthContextType {
   user: UserRecord | null
@@ -8,13 +9,19 @@ interface AuthContextType {
   perfil: UserPerfil
   tenantId: string
   isLoading: boolean
+  allTenants: TenantRecord[]
   login: (email: string, pass: string) => Promise<void>
   logout: () => void
+  switchTenant: (newTenantId: string) => Promise<void>
+  switchPerfilSimulado: (novoPerfil: UserPerfil) => void
   hasModule: (modulo: ModuloId) => boolean
   hasProfile: (allowed: UserPerfil[]) => boolean
   canAccessClinical: () => boolean
   canAccessFinancialReports: () => boolean
+  isSuperAdmin: () => boolean
+  isOwner: () => boolean
   toggleModuleEntitlement: (modulo: ModuloId, active: boolean) => Promise<void>
+  refreshTenant: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -22,6 +29,8 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserRecord | null>(null)
   const [tenant, setTenant] = useState<TenantRecord | null>(null)
+  const [allTenants, setAllTenants] = useState<TenantRecord[]>([])
+  const [simulatedPerfil, setSimulatedPerfil] = useState<UserPerfil | null>(null)
   const [isLoading, setIsLoading] = useState<boolean>(true)
 
   // Carregar dados de tenant e autenticação
@@ -29,30 +38,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true)
     try {
       const authModel = pb.authStore.model
+      let currentTenant: TenantRecord | null = null
+
+      // Carregar lista de tenants disponíveis
+      try {
+        const list = await pb.collection('tenants').getList<TenantRecord>(1, 50, {
+          sort: 'nome',
+        })
+        setAllTenants(list.items)
+        if (list.items.length > 0) {
+          currentTenant = list.items[0]
+        }
+      } catch (err) {
+        console.warn('Não foi possível listar tenants:', err)
+      }
+
       if (authModel) {
         const u = authModel as unknown as UserRecord
         setUser(u)
 
-        // Se o usuário tiver tenant_id, buscar os dados do tenant
         if (u.tenant_id) {
           try {
             const t = await pb.collection('tenants').getOne<TenantRecord>(u.tenant_id)
             setTenant(t)
           } catch {
-            // Se falhar buscar pelo ID, tentar primeiro tenant
-            const list = await pb.collection('tenants').getList<TenantRecord>(1, 1)
-            if (list.items.length > 0) setTenant(list.items[0])
+            if (currentTenant) setTenant(currentTenant)
           }
-        } else {
-          // Buscar primeiro tenant padrão
-          const list = await pb.collection('tenants').getList<TenantRecord>(1, 1)
-          if (list.items.length > 0) setTenant(list.items[0])
+        } else if (currentTenant) {
+          setTenant(currentTenant)
         }
       } else {
         setUser(null)
-        // Tenant fallback demo mesmo sem login para rotas de agendamento online público
-        const list = await pb.collection('tenants').getList<TenantRecord>(1, 1)
-        if (list.items.length > 0) setTenant(list.items[0])
+        if (currentTenant) setTenant(currentTenant)
       }
     } catch (err) {
       console.error('Erro ao carregar tenant e usuário:', err)
@@ -70,27 +87,64 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (email: string, pass: string) => {
     await pb.collection('users').authWithPassword(email, pass)
+    setSimulatedPerfil(null)
     await loadTenantAndUser()
   }
 
   const logout = () => {
     pb.authStore.clear()
     setUser(null)
+    setSimulatedPerfil(null)
+  }
+
+  const switchTenant = async (newTenantId: string) => {
+    try {
+      const t = await pb.collection('tenants').getOne<TenantRecord>(newTenantId)
+      setTenant(t)
+    } catch (err) {
+      console.error('Erro ao alternar tenant:', err)
+    }
+  }
+
+  const switchPerfilSimulado = (novoPerfil: UserPerfil) => {
+    setSimulatedPerfil(novoPerfil)
+  }
+
+  const refreshTenant = async () => {
+    if (!tenant) return
+    try {
+      const refreshed = await pb.collection('tenants').getOne<TenantRecord>(tenant.id)
+      setTenant(refreshed)
+    } catch (err) {
+      console.warn('Erro ao atualizar tenant:', err)
+    }
   }
 
   // Verificação de Entitlements (BL-002)
   const hasModule = (modulo: ModuloId): boolean => {
-    if (!tenant) return true // Graceful
+    if (!tenant) return true
     if (modulo === 'core' || modulo === 'agenda' || modulo === 'pacientes') return true
     const modulos = tenant.modulos_ativos
-    if (!modulos) return true
+    if (!modulos) return false
     return Boolean(modulos[modulo as keyof typeof modulos])
   }
 
   // Alternar módulo dinamicamente para validar CA-MOD-2 (<1 min sem deploy)
   const toggleModuleEntitlement = async (modulo: ModuloId, active: boolean) => {
     if (!tenant) return
-    const currentMods = { ...(tenant.modulos_ativos || {}) }
+    const currentMods = {
+      ...(tenant.modulos_ativos || { core: true, agenda: true, pacientes: true }),
+    }
+
+    if (active) {
+      const depCheck = validarDependenciasModulo(modulo, currentMods)
+      if (!depCheck.satisfeito) {
+        throw new Error(
+          `Para ativar ${modulo}, é necessário ativar previamente: ${depCheck.faltando.join(', ')}`,
+        )
+      }
+    }
+
     currentMods[modulo as keyof typeof currentMods] = active
 
     const updated = await pb.collection('tenants').update<TenantRecord>(tenant.id, {
@@ -99,20 +153,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setTenant(updated)
   }
 
-  const perfil: UserPerfil = (user?.perfil as UserPerfil) || 'dentista'
+  const perfilReal: UserPerfil = (user?.perfil as UserPerfil) || 'owner'
+  const perfil: UserPerfil = simulatedPerfil || perfilReal
 
-  // Regra RBAC / LGPD: Apenas clínicos (owner e dentista) acessam dados de prontuário e diagnóstico
+  const isSuperAdmin = (): boolean => perfil === 'superadmin'
+  const isOwner = (): boolean => perfil === 'owner' || perfil === 'superadmin'
+
+  // Regra RBAC / LGPD: Apenas clínicos (owner, dentista, superadmin) acessam dados de prontuário e diagnóstico
   const canAccessClinical = (): boolean => {
-    return perfil === 'owner' || perfil === 'dentista'
+    return perfil === 'superadmin' || perfil === 'owner' || perfil === 'dentista'
   }
 
-  // Dentistas não veem relatórios financeiros consolidados globais por padrão
+  // Apenas gestores acessam relatórios financeiros consolidados globais por padrão
   const canAccessFinancialReports = (): boolean => {
-    return perfil === 'owner' || perfil === 'financeiro'
+    return perfil === 'superadmin' || perfil === 'owner' || perfil === 'financeiro'
   }
 
   const hasProfile = (allowed: UserPerfil[]): boolean => {
-    if (!user) return false
+    if (perfil === 'superadmin') return true
     return allowed.includes(perfil)
   }
 
@@ -126,13 +184,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         perfil,
         tenantId,
         isLoading,
+        allTenants,
         login,
         logout,
+        switchTenant,
+        switchPerfilSimulado,
         hasModule,
         hasProfile,
         canAccessClinical,
         canAccessFinancialReports,
+        isSuperAdmin,
+        isOwner,
         toggleModuleEntitlement,
+        refreshTenant,
       }}
     >
       {children}

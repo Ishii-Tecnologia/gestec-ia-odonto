@@ -1,14 +1,14 @@
 {
-  "generatedAt": "2026-10-07T21:41:35.152Z",
+  "generatedAt": "2026-10-07T22:36:19.322Z",
   "collections": [
     {
       "name": "users",
       "type": "auth",
       "apiRules": {
-        "list": "id = @request.auth.id",
-        "view": "id = @request.auth.id",
-        "create": "",
-        "update": "id = @request.auth.id",
+        "list": "@request.auth.id != '' && (@request.auth.perfil = 'superadmin' || @request.auth.id = id || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.perfil = 'superadmin' || @request.auth.id = id || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != '' && (@request.auth.perfil = 'superadmin' || @request.auth.perfil = 'owner' || @request.auth.id = id)",
         "delete": "id = @request.auth.id"
       },
       "fields": [
@@ -49,7 +49,7 @@
           "type": "select",
           "required": false,
           "system": false,
-          "selectValues": ["owner", "dentista", "recepcao", "financeiro", "asb"]
+          "selectValues": ["superadmin", "owner", "dentista", "recepcao", "financeiro", "asb"]
         },
         {
           "name": "cro",
@@ -67,10 +67,10 @@
       "name": "tenants",
       "type": "base",
       "apiRules": {
-        "list": null,
-        "view": null,
-        "create": null,
-        "update": null,
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
         "delete": null
       },
       "fields": [],
@@ -93,11 +93,11 @@
       "name": "pacientes",
       "type": "base",
       "apiRules": {
-        "list": null,
-        "view": null,
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
         "create": "@request.auth.id != ''",
-        "update": null,
-        "delete": null
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
       },
       "fields": [],
       "indexes": []
@@ -119,11 +119,11 @@
       "name": "procedimentos",
       "type": "base",
       "apiRules": {
-        "list": null,
-        "view": null,
-        "create": null,
-        "update": null,
-        "delete": null
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
       },
       "fields": [],
       "indexes": []
@@ -158,8 +158,8 @@
       "name": "odontogramas_snapshots",
       "type": "base",
       "apiRules": {
-        "list": null,
-        "view": null,
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
         "create": "@request.auth.id != ''",
         "update": null,
         "delete": null
@@ -171,9 +171,9 @@
       "name": "evolucoes_clinicas",
       "type": "base",
       "apiRules": {
-        "list": null,
-        "view": null,
-        "create": null,
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
         "update": null,
         "delete": null
       },
@@ -210,11 +210,11 @@
       "name": "orcamentos",
       "type": "base",
       "apiRules": {
-        "list": null,
-        "view": null,
-        "create": null,
-        "update": null,
-        "delete": null
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
       },
       "fields": [],
       "indexes": []
@@ -223,8 +223,8 @@
       "name": "lancamentos_financeiros",
       "type": "base",
       "apiRules": {
-        "list": null,
-        "view": null,
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
         "create": "@request.auth.id != ''",
         "update": "@request.auth.id != ''",
         "delete": "@request.auth.id != ''"
@@ -275,9 +275,9 @@
       "name": "auditoria_acesso",
       "type": "base",
       "apiRules": {
-        "list": null,
-        "view": null,
-        "create": null,
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
         "update": null,
         "delete": null
       },

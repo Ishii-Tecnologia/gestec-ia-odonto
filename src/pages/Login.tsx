@@ -6,8 +6,16 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useToast } from '@/hooks/use-toast'
 import { useNavigate, Link } from 'react-router-dom'
-import { Activity, Lock, Mail, ShieldCheck, Stethoscope, UserCircle2 } from 'lucide-react'
-import { UserPerfil } from '@/types/gestec'
+import {
+  Activity,
+  Lock,
+  Mail,
+  ShieldCheck,
+  Stethoscope,
+  UserCircle2,
+  Server,
+  Sparkles,
+} from 'lucide-react'
 
 export default function Login() {
   const { login, isLoading } = useAuth()
@@ -86,7 +94,7 @@ export default function Login() {
             </span>
           </h1>
           <p className="text-xs text-slate-500">
-            Gestão Clínica, Operacional e Financeira para Consultórios
+            Gestão Clínica, Operacional e Financeira para Consultórios Odontológicos
           </p>
         </div>
       </div>
@@ -97,7 +105,7 @@ export default function Login() {
             Acesso Seguro à Clínica
           </CardTitle>
           <CardDescription className="text-center text-xs text-slate-500">
-            Ambiente em conformidade com as diretrizes do CFO e da LGPD (Lei nº 13.709/2018)
+            Multi-tenancy com isolamento de dados e conformidade CFO e LGPD
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -111,7 +119,7 @@ export default function Login() {
                 <Input
                   id="email"
                   type="email"
-                  placeholder="seu.email@consultorio.com.br"
+                  placeholder="seu.email@gestecodonto.com.br"
                   className="pl-9 h-10 text-sm"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -152,7 +160,7 @@ export default function Login() {
             </Button>
           </form>
 
-          {/* Perfis de Teste Rápido do MVP */}
+          {/* Perfis de Teste Rápido do MVP (6 perfis RBAC) */}
           <div className="pt-2 border-t border-slate-100">
             <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2 text-center">
               Acesso Rápido por Perfil (Ambiente de Demonstração):
@@ -162,13 +170,13 @@ export default function Login() {
                 type="button"
                 variant="outline"
                 size="sm"
-                className="justify-start text-left h-auto py-1.5 px-2.5 text-slate-700 hover:bg-cyan-50"
+                className="justify-start text-left h-auto py-1.5 px-2.5 text-slate-700 hover:bg-cyan-50 border-cyan-200"
                 onClick={() => handleQuickLogin('owner@gestecodonto.com.br')}
               >
                 <ShieldCheck className="w-3.5 h-3.5 text-cyan-600 mr-1.5 shrink-0" />
                 <div>
                   <div className="font-medium">Dra. Renata</div>
-                  <div className="text-[10px] text-slate-400">Owner / RT</div>
+                  <div className="text-[10px] text-slate-400">Owner (CRO-SP 89234)</div>
                 </div>
               </Button>
 
@@ -182,7 +190,7 @@ export default function Login() {
                 <Stethoscope className="w-3.5 h-3.5 text-blue-600 mr-1.5 shrink-0" />
                 <div>
                   <div className="font-medium">Dr. Marcelo</div>
-                  <div className="text-[10px] text-slate-400">Cirurgião-Dentista</div>
+                  <div className="text-[10px] text-slate-400">Dentista (CRO-SP 104552)</div>
                 </div>
               </Button>
 
@@ -213,15 +221,44 @@ export default function Login() {
                   <div className="text-[10px] text-slate-400">Financeiro</div>
                 </div>
               </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="justify-start text-left h-auto py-1.5 px-2.5 text-slate-700 hover:bg-cyan-50"
+                onClick={() => handleQuickLogin('asb@gestecodonto.com.br')}
+              >
+                <UserCircle2 className="w-3.5 h-3.5 text-slate-600 mr-1.5 shrink-0" />
+                <div>
+                  <div className="font-medium">Juliana</div>
+                  <div className="text-[10px] text-slate-400">ASB / Auxiliar</div>
+                </div>
+              </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="justify-start text-left h-auto py-1.5 px-2.5 text-red-700 hover:bg-red-50 border-red-200"
+                onClick={() => handleQuickLogin('superadmin@gestecodonto.com.br')}
+              >
+                <Server className="w-3.5 h-3.5 text-red-600 mr-1.5 shrink-0" />
+                <div>
+                  <div className="font-medium">Super Admin</div>
+                  <div className="text-[10px] text-red-400">Plataforma SaaS</div>
+                </div>
+              </Button>
             </div>
           </div>
 
           <div className="text-center pt-2">
             <Link
               to="/agendar-online"
-              className="text-xs text-[#0E7490] font-medium hover:underline"
+              className="text-xs text-[#0E7490] font-medium hover:underline flex items-center justify-center gap-1"
             >
-              → Acessar Agendamento Online Público para Pacientes
+              <Sparkles className="w-3.5 h-3.5" />
+              Agendamento Online Público para Pacientes
             </Link>
           </div>
         </CardContent>

@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label'
 import { useToast } from '@/hooks/use-toast'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Stethoscope, Lock } from 'lucide-react'
-import { pb } from '@/lib/pocketbase/client'
+import pb from '@/lib/pocketbase/client'
 
 export default function ResetPassword() {
   const [searchParams] = useSearchParams()

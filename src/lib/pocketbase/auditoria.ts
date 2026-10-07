@@ -1,4 +1,4 @@
-import { pb } from './client'
+import pb from './client'
 
 export async function registrarAuditoria(params: {
   tenantId: string

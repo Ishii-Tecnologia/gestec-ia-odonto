@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { pb } from '@/lib/pocketbase/client'
+import pb from '@/lib/pocketbase/client'
 import {
   ProfissionalRecord,
   ProcedimentoRecord,

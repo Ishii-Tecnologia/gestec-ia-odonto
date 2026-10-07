@@ -1,24 +1,71 @@
-export type UserPerfil = 'owner' | 'dentista' | 'recepcao' | 'financeiro' | 'asb'
+export type UserPerfil = 'superadmin' | 'owner' | 'dentista' | 'recepcao' | 'financeiro' | 'asb'
 
 export type ModuloId =
   | 'core'
   | 'agenda'
   | 'pacientes'
   | 'prontuario'
-  | 'orcamentos'
   | 'financeiro'
-  | 'relatorios'
-  | 'lembretes'
+  | 'orcamentos'
+  | 'tiss'
+  | 'documentos'
+  | 'automacoes'
+  | 'ia'
+  | 'estoque'
+  | 'bi'
+  | 'api_publica'
+
+export type PlanoTenant =
+  | 'consultorio-essencial'
+  | 'suite-clinica'
+  | 'suite-gestao'
+  | 'suite-completa'
+  | 'custom'
+
+export interface ModuloCatalogoItem {
+  id: ModuloId
+  nome: string
+  descricao: string
+  categoria: 'clinico' | 'gestao' | 'avancado' | 'integracao'
+  obrigatorio?: boolean // Não pode ser desativado (ex: core)
+  bloqueadoFase1?: boolean // BL-024 a BL-029 (Bloqueado)
+  dependencias: ModuloId[] // Módulos necessários para este funcionar
+  icone: string
+  planoMinimo: PlanoTenant
+  bundle?: 'essencial' | 'clinico' | 'gestao' | 'pro'
+}
 
 export interface TenantModulos {
   core: boolean
-  agenda: boolean
-  pacientes: boolean
-  prontuario: boolean
-  orcamentos: boolean
-  financeiro: boolean
-  relatorios: boolean
-  lembretes: boolean
+  agenda?: boolean
+  pacientes?: boolean
+  prontuario?: boolean
+  financeiro?: boolean
+  orcamentos?: boolean
+  tiss?: boolean
+  documentos?: boolean
+  automacoes?: boolean
+  ia?: boolean
+  estoque?: boolean
+  bi?: boolean
+  api_publica?: boolean
+}
+
+export interface SalaRecord {
+  id: string
+  nome: string
+  descricao?: string
+  cadeiras_qtd: number
+  ativo: boolean
+}
+
+export interface UnidadeRecord {
+  id: string
+  nome: string
+  cidade?: string
+  estado?: string
+  ativo: boolean
+  salas: SalaRecord[]
 }
 
 export interface TenantRecord {
@@ -26,16 +73,18 @@ export interface TenantRecord {
   nome: string
   razao_social?: string
   cnpj?: string
-  plano: 'consultorio-essencial' | 'suite-clinica' | 'suite-gestao' | 'suite-completa'
+  plano: PlanoTenant
   modulos_ativos: TenantModulos
   limites?: {
     profissionais_max?: number
     cadeiras_max?: number
     mensagens_mes?: number
+    unidades_max?: number
   }
+  unidades?: UnidadeRecord[]
   ativo: boolean
-  created: string
-  updated: string
+  created?: string
+  updated?: string
 }
 
 export interface UserRecord {
@@ -45,8 +94,8 @@ export interface UserRecord {
   tenant_id?: string
   perfil?: UserPerfil
   cro?: string
-  created: string
-  updated: string
+  created?: string
+  updated?: string
 }
 
 export interface ProfissionalRecord {
@@ -77,8 +126,8 @@ export interface PacienteRecord {
   status: 'ativo' | 'inativo' | 'em-tratamento'
   tags?: string[]
   observacoes?: string
-  created: string
-  updated: string
+  created?: string
+  updated?: string
 }
 
 export interface ProcedimentoRecord {
@@ -125,9 +174,8 @@ export interface AgendamentoRecord {
     ocorrencias: number
   }
   observacoes?: string
-  created: string
-  updated: string
-  // Campos expandidos do PocketBase
+  created?: string
+  updated?: string
   expand?: {
     paciente_id?: PacienteRecord
     profissional_id?: ProfissionalRecord
@@ -143,7 +191,7 @@ export interface FilaEsperaRecord {
   prioridade?: number
   status: 'aguardando' | 'ofertado' | 'atendido' | 'cancelado'
   observacoes?: string
-  created: string
+  created?: string
   expand?: {
     paciente_id?: PacienteRecord
     profissional_id?: ProfissionalRecord
@@ -160,7 +208,7 @@ export interface DenteFaceStatus {
     | 'protese'
     | 'facetas'
     | 'ausente'
-  faces?: ('V' | 'L' | 'M' | 'D' | 'O')[] // Vestibular, Lingual/Palatina, Mesial, Distal, Oclusal
+  faces?: ('V' | 'L' | 'M' | 'D' | 'O')[]
   cor?: string
   detalhe?: string
 }
@@ -171,9 +219,9 @@ export interface OdontogramaSnapshotRecord {
   paciente_id: string
   data: string
   atendimento_id?: string
-  payload: Record<string, DenteFaceStatus> // dente 11 até 48
+  payload: Record<string, DenteFaceStatus>
   dentista_nome?: string
-  created: string
+  created?: string
 }
 
 export interface EvolucaoClinicaRecord {
@@ -192,7 +240,7 @@ export interface EvolucaoClinicaRecord {
   descricao: string
   dentista_nome?: string
   cro?: string
-  created: string
+  created?: string
 }
 
 export interface AnamnesePergunta {
@@ -212,8 +260,8 @@ export interface AnamneseRecord {
   status: 'pendente' | 'respondida' | 'assinada'
   token?: string
   data_resposta?: string
-  created: string
-  updated: string
+  created?: string
+  updated?: string
 }
 
 export interface OrçamentoItem {
@@ -243,8 +291,8 @@ export interface OrcamentoRecord {
     ip?: string
     valido?: boolean
   }
-  created: string
-  updated: string
+  created?: string
+  updated?: string
   expand?: {
     paciente_id?: PacienteRecord
   }
@@ -269,8 +317,8 @@ export interface LancamentoFinanceiroRecord {
   modalidades?: ModalidadePagamento[]
   data_pagamento?: string
   valor_pago?: number
-  created: string
-  updated: string
+  created?: string
+  updated?: string
   expand?: {
     paciente_id?: PacienteRecord
   }
@@ -297,7 +345,7 @@ export interface MessageLembreteRecord {
     | 'respondido_reagendar'
     | 'falhou'
   data_envio?: string
-  created: string
+  created?: string
 }
 
 export interface ExameAnexoRecord {
@@ -308,7 +356,19 @@ export interface ExameAnexoRecord {
   tipo: 'raiox' | 'foto_clinica' | 'documento' | 'laudo'
   descricao: string
   data_exame?: string
-  created: string
+  created?: string
+}
+
+export interface PrescricaoRecord {
+  id: string
+  tenant_id: string
+  paciente_id: string
+  data: string
+  medicamentos: any[]
+  instrucoes?: string
+  dentista_nome: string
+  cro: string
+  created?: string
 }
 
 export interface AuditoriaAcessoRecord {

@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label'
 import { useToast } from '@/hooks/use-toast'
 import { Link } from 'react-router-dom'
 import { Stethoscope, Mail, ArrowLeft } from 'lucide-react'
-import { pb } from '@/lib/pocketbase/client'
+import pb from '@/lib/pocketbase/client'
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState('')

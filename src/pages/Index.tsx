@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useAuth } from '@/lib/pocketbase/auth-context'
-import { pb } from '@/lib/pocketbase/client'
+import pb from '@/lib/pocketbase/client'
 import { AgendamentoRecord, PacienteRecord, LancamentoFinanceiroRecord } from '@/types/gestec'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -16,11 +16,15 @@ import {
   Sparkles,
   CheckCircle2,
   Stethoscope,
+  Settings,
+  ShieldCheck,
+  Server,
+  Building2,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 export default function Index() {
-  const { user, tenant, perfil, hasModule } = useAuth()
+  const { user, tenant, perfil, hasModule, isSuperAdmin, isOwner } = useAuth()
   const [agendamentosHoje, setAgendamentosHoje] = useState<AgendamentoRecord[]>([])
   const [pacientesTotal, setPacientesTotal] = useState<number>(0)
   const [pacientesRisco, setPacientesRisco] = useState<PacienteRecord[]>([])
@@ -29,21 +33,28 @@ export default function Index() {
 
   const todayStr = new Date().toISOString().slice(0, 10)
   const hasFinanceiro = hasModule('financeiro')
+  const tenantId = tenant?.id
 
   useEffect(() => {
     async function carregarDashboard() {
       setLoading(true)
       try {
-        // 1. Agendamentos de hoje
+        // 1. Agendamentos de hoje filtrados por tenant
+        const filterAg = tenantId
+          ? `tenant_id = '${tenantId}' && data_inicio >= '${todayStr}T00:00:00' && data_inicio <= '${todayStr}T23:59:59'`
+          : `data_inicio >= '${todayStr}T00:00:00' && data_inicio <= '${todayStr}T23:59:59'`
+
         const agRes = await pb.collection('agendamentos').getList<AgendamentoRecord>(1, 20, {
-          filter: `data_inicio >= '${todayStr}T00:00:00' && data_inicio <= '${todayStr}T23:59:59'`,
+          filter: filterAg,
           sort: 'data_inicio',
           expand: 'paciente_id,profissional_id',
         })
         setAgendamentosHoje(agRes.items)
 
-        // 2. Total de Pacientes e Risco de Evasão (BL-014)
+        // 2. Total de Pacientes e Risco de Evasão (BL-014) filtrados por tenant
+        const filterPac = tenantId ? `tenant_id = '${tenantId}'` : ''
         const pacRes = await pb.collection('pacientes').getList<PacienteRecord>(1, 100, {
+          filter: filterPac || undefined,
           sort: '-created',
         })
         setPacientesTotal(pacRes.totalItems)
@@ -52,10 +63,14 @@ export default function Index() {
 
         // 3. Faturamento do Mês (se financeiro contratado)
         if (hasFinanceiro) {
+          const filterFin = tenantId
+            ? `tenant_id = '${tenantId}' && tipo = 'receber' && status = 'pago'`
+            : "tipo = 'receber' && status = 'pago'"
+
           const finRes = await pb
             .collection('lancamentos_financeiros')
             .getList<LancamentoFinanceiroRecord>(1, 50, {
-              filter: "tipo = 'receber' && status = 'pago'",
+              filter: filterFin,
             })
           const total = finRes.items.reduce(
             (acc, curr) => acc + (curr.valor_pago || curr.valor || 0),
@@ -70,9 +85,9 @@ export default function Index() {
       }
     }
     carregarDashboard()
-  }, [hasFinanceiro, todayStr])
+  }, [hasFinanceiro, todayStr, tenantId])
 
-  // Taxa de ocupação aproximada (capacidade de 16 slots diários de 30min x 2 consultórios = 32 slots)
+  // Taxa de ocupação aproximada
   const ocupacaoPct = Math.min(Math.round((agendamentosHoje.length / 16) * 100), 100)
 
   return (
@@ -80,9 +95,17 @@ export default function Index() {
       {/* Top Banner de Boas-Vindas */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-            Olá, {user?.name || 'Doutor(a)'}
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+              Olá, {user?.name || 'Doutor(a)'}
+            </h1>
+            <Badge
+              variant="outline"
+              className="text-xs capitalize font-medium text-slate-600 bg-slate-50"
+            >
+              {perfil}
+            </Badge>
+          </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
             {new Date().toLocaleDateString('pt-BR', {
               weekday: 'long',
@@ -91,20 +114,42 @@ export default function Index() {
               year: 'numeric',
             })}
             {' • '}
-            {tenant?.nome || 'Unidade Principal'}
+            <span className="font-semibold text-slate-700">
+              {tenant?.nome || 'Unidade Principal'}
+            </span>
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {isOwner() && (
+            <Button
+              asChild
+              variant="outline"
+              className="text-xs h-9 border-cyan-200 text-[#0E7490] hover:bg-cyan-50"
+            >
+              <Link to="/configuracoes">
+                <Settings className="w-4 h-4 mr-1.5" />
+                Gestão & Módulos
+              </Link>
+            </Button>
+          )}
+
+          {isSuperAdmin() && (
+            <Button
+              asChild
+              variant="outline"
+              className="text-xs h-9 border-red-200 text-red-700 hover:bg-red-50"
+            >
+              <Link to="/superadmin">
+                <Server className="w-4 h-4 mr-1.5" />
+                Painel Super Admin
+              </Link>
+            </Button>
+          )}
+
           <Button asChild className="bg-[#0E7490] hover:bg-[#155E75] text-white text-xs h-9">
             <Link to="/agenda">
               <Calendar className="w-4 h-4 mr-1.5" />
               Ver Grade do Dia
-            </Link>
-          </Button>
-          <Button asChild variant="outline" className="text-xs h-9">
-            <Link to="/pacientes">
-              <Users className="w-4 h-4 mr-1.5" />
-              Cadastrar Paciente
             </Link>
           </Button>
         </div>
@@ -158,7 +203,7 @@ export default function Index() {
                   Disponível no Plano Pro
                 </Badge>
                 <p className="text-[10px] text-slate-400 mt-1">
-                  Ative o Módulo Financeiro em Configurações
+                  Módulo Financeiro desativado para esta clínica
                 </p>
               </div>
             )}
@@ -175,7 +220,7 @@ export default function Index() {
           <CardContent>
             <div className="text-2xl font-bold text-slate-900">{pacientesTotal}</div>
             <p className="text-[11px] text-slate-500 mt-1">
-              Cadastros clínicos e familiares ativos
+              Cadastros clínicos isolados por tenant_id
             </p>
           </CardContent>
         </Card>
@@ -225,7 +270,7 @@ export default function Index() {
           <CardContent className="p-0">
             {agendamentosHoje.length === 0 ? (
               <div className="text-center py-10 px-4 text-slate-400 text-xs">
-                Nenhum agendamento restante para hoje.
+                Nenhum agendamento para hoje neste consultório.
               </div>
             ) : (
               <div className="divide-y divide-slate-100">
@@ -349,16 +394,16 @@ export default function Index() {
             </CardHeader>
             <CardContent className="text-xs text-slate-600 space-y-2">
               <p>
-                • <strong>Prontuário Imutável:</strong> evoluções registradas em modo append-only
-                com versionamento cronológico.
+                • <strong>Multi-tenancy RLS:</strong> Isolamento estrito por tenant_id em todas as
+                coleções.
               </p>
               <p>
-                • <strong>Auditoria LGPD Ativa:</strong> todo acesso a dados clínicos sensíveis gera
-                log indelével de auditoria.
+                • <strong>Auditoria LGPD Ativa:</strong> Coleção append-only sem permissão de
+                alteração ou exclusão via API.
               </p>
               <p>
-                • <strong>Entitlements v2.0:</strong> módulos isolados com degradação graciosa em
-                tempo de execução.
+                • <strong>Entitlements v2.0:</strong> Feature flags dinâmicas com degradação
+                graciosa em tempo real.
               </p>
             </CardContent>
           </Card>

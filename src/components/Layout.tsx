@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, Outlet } from 'react-router-dom'
 import { useAuth } from '@/lib/pocketbase/auth-context'
-import { ModuloId } from '@/types/gestec'
+import { ModuloId, UserPerfil } from '@/types/gestec'
 import {
   LayoutDashboard,
   Calendar,
@@ -19,6 +19,9 @@ import {
   ChevronDown,
   ShieldAlert,
   Sparkles,
+  Building2,
+  Server,
+  UserCheck,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -31,6 +34,13 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 interface NavItem {
   name: string
@@ -39,6 +49,8 @@ interface NavItem {
   modulo: ModuloId
   clinicalOnly?: boolean
   financialOnly?: boolean
+  ownerOnly?: boolean
+  superAdminOnly?: boolean
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -60,13 +72,37 @@ const NAV_ITEMS: NavItem[] = [
     modulo: 'financeiro',
     financialOnly: true,
   },
-  { name: 'Relatórios', path: '/relatorios', icon: BarChart3, modulo: 'relatorios' },
-  { name: 'Configurações', path: '/configuracoes', icon: Settings, modulo: 'core' },
+  { name: 'Relatórios & BI', path: '/relatorios', icon: BarChart3, modulo: 'bi' },
+  {
+    name: 'Gestão da Clínica',
+    path: '/configuracoes',
+    icon: Settings,
+    modulo: 'core',
+    ownerOnly: true,
+  },
+  {
+    name: 'Super Admin',
+    path: '/superadmin',
+    icon: Server,
+    modulo: 'core',
+    superAdminOnly: true,
+  },
 ]
 
-export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, tenant, perfil, logout, hasModule, canAccessClinical, canAccessFinancialReports } =
-    useAuth()
+export const Layout: React.FC<{ children?: React.ReactNode }> = ({ children }) => {
+  const {
+    user,
+    tenant,
+    perfil,
+    logout,
+    hasModule,
+    canAccessClinical,
+    canAccessFinancialReports,
+    isSuperAdmin,
+    isOwner,
+    switchPerfilSimulado,
+  } = useAuth()
+
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
@@ -118,9 +154,38 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             </button>
           </div>
 
+          {/* Seletor Rápido de Perfil para Demonstração de RBAC */}
+          {!collapsed && (
+            <div className="p-3 border-b border-slate-100 bg-slate-50/50">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                  <UserCheck className="w-3 h-3 text-[#0E7490]" />
+                  Perfil em Uso (RBAC)
+                </span>
+              </div>
+              <Select value={perfil} onValueChange={(val: UserPerfil) => switchPerfilSimulado(val)}>
+                <SelectTrigger className="h-7 text-[11px] bg-white border-slate-200">
+                  <SelectValue placeholder="Selecione o perfil..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="superadmin">Super Admin (Plataforma)</SelectItem>
+                  <SelectItem value="owner">Owner (Dra. Renata)</SelectItem>
+                  <SelectItem value="dentista">Dentista (Dr. Marcelo)</SelectItem>
+                  <SelectItem value="recepcao">Recepção (Camila)</SelectItem>
+                  <SelectItem value="financeiro">Financeiro (Eduardo)</SelectItem>
+                  <SelectItem value="asb">ASB (Juliana)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           {/* Navigation Links */}
           <nav className="p-3 space-y-1">
             {NAV_ITEMS.map((item) => {
+              // Filtrar itens específicos de privilégio
+              if (item.superAdminOnly && !isSuperAdmin()) return null
+              if (item.ownerOnly && !isOwner()) return null
+
               const active =
                 location.pathname === item.path ||
                 (item.path !== '/' && location.pathname.startsWith(item.path))
@@ -153,8 +218,11 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                         </span>
                       )}
                       {(isClinicalBlocked || isFinancialBlocked) && (
-                        <span className="text-[10px] text-slate-400">
-                          <ShieldAlert className="w-3 h-3 inline text-slate-300" />
+                        <span
+                          className="text-[10px] text-slate-400"
+                          title="Acesso restrito por perfil"
+                        >
+                          <ShieldAlert className="w-3.5 h-3.5 inline text-amber-500" />
                         </span>
                       )}
                     </div>
@@ -183,7 +251,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             {!collapsed && (
               <div className="flex-1 truncate">
                 <div className="text-xs font-semibold text-slate-800 truncate">
-                  {user?.name || 'Usuário'}
+                  {user?.name || 'Dra. Renata'}
                 </div>
                 <div className="text-[10px] text-slate-500 flex items-center gap-1 capitalize">
                   <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-slate-300">
@@ -268,14 +336,16 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 <DropdownMenuSeparator />
                 <div className="space-y-1 text-xs text-slate-600 py-1">
                   <div className="p-2 rounded bg-cyan-50/60 border border-cyan-100">
-                    <p className="font-medium text-slate-800">Lembretes WhatsApp Ativos</p>
+                    <p className="font-medium text-slate-800">Conformidade LGPD</p>
                     <p className="text-[11px] text-slate-500">
-                      Disparos de 48h e 24h configurados para hoje.
+                      Trilha de auditoria append-only operando normalmente.
                     </p>
                   </div>
                   <div className="p-2 rounded hover:bg-slate-50">
-                    <p className="font-medium text-slate-800">2 orçamentos pendentes</p>
-                    <p className="text-[11px] text-slate-500">Aguardando assinatura do paciente.</p>
+                    <p className="font-medium text-slate-800">Prontuário Imutável</p>
+                    <p className="text-[11px] text-slate-500">
+                      Evoluções gravadas com hash cronológico.
+                    </p>
                   </div>
                 </div>
               </DropdownMenuContent>
@@ -286,11 +356,11 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="flex items-center gap-2 pl-2 pr-2.5 h-9">
                   <div className="w-7 h-7 rounded-full bg-[#0E7490] text-white font-bold text-xs flex items-center justify-center">
-                    {user?.name ? user.name[0].toUpperCase() : 'U'}
+                    {user?.name ? user.name[0].toUpperCase() : 'R'}
                   </div>
                   <div className="text-left hidden md:block">
                     <div className="text-xs font-semibold text-slate-800 leading-none">
-                      {user?.name || 'Usuário'}
+                      {user?.name || 'Dra. Renata'}
                     </div>
                     <div className="text-[10px] text-slate-400 capitalize leading-none mt-1">
                       {perfil}
@@ -302,7 +372,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuLabel>
                   <div className="font-normal text-xs text-slate-500">Logado como</div>
-                  <div className="font-semibold text-xs text-slate-800 truncate">{user?.email}</div>
+                  <div className="font-semibold text-xs text-slate-800 truncate">
+                    {user?.email || 'owner@gestecodonto.com.br'}
+                  </div>
                   {user?.cro && (
                     <div className="text-[10px] text-cyan-700 font-mono mt-0.5">{user.cro}</div>
                   )}
@@ -311,9 +383,18 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 <DropdownMenuItem asChild>
                   <Link to="/configuracoes" className="text-xs cursor-pointer">
                     <Settings className="w-3.5 h-3.5 mr-2" />
-                    Configurações & Entitlements
+                    Gestão & Entitlements
                   </Link>
                 </DropdownMenuItem>
+                {isSuperAdmin() && (
+                  <DropdownMenuItem asChild>
+                    <Link to="/superadmin" className="text-xs cursor-pointer text-red-600">
+                      <Server className="w-3.5 h-3.5 mr-2" />
+                      Painel Super Admin
+                    </Link>
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={logout}
                   className="text-xs text-red-600 focus:text-red-700 cursor-pointer"
@@ -327,7 +408,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 p-4 md:p-6 max-w-7xl w-full mx-auto">{children}</main>
+        <main className="flex-1 p-4 md:p-6 max-w-7xl w-full mx-auto">{children || <Outlet />}</main>
 
         {/* Footer */}
         <footer className="border-t border-slate-200 bg-white py-3 px-6 text-center text-xs text-slate-400">
