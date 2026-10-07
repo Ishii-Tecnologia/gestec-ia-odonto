@@ -1,0 +1,288 @@
+{
+  "generatedAt": "2026-10-07T21:41:35.152Z",
+  "collections": [
+    {
+      "name": "users",
+      "type": "auth",
+      "apiRules": {
+        "list": "id = @request.auth.id",
+        "view": "id = @request.auth.id",
+        "create": "",
+        "update": "id = @request.auth.id",
+        "delete": "id = @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "avatar",
+          "type": "file",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "perfil",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["owner", "dentista", "recepcao", "financeiro", "asb"]
+        },
+        {
+          "name": "cro",
+          "type": "text",
+          "required": false,
+          "system": false
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX `idx_tokenKey__pb_users_auth_` ON `users` (`tokenKey`)",
+        "CREATE UNIQUE INDEX `idx_email__pb_users_auth_` ON `users` (`email`) WHERE `email` != ''"
+      ]
+    },
+    {
+      "name": "tenants",
+      "type": "base",
+      "apiRules": {
+        "list": null,
+        "view": null,
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "fields": [],
+      "indexes": []
+    },
+    {
+      "name": "profissionais",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": null,
+        "update": null,
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [],
+      "indexes": []
+    },
+    {
+      "name": "pacientes",
+      "type": "base",
+      "apiRules": {
+        "list": null,
+        "view": null,
+        "create": "@request.auth.id != ''",
+        "update": null,
+        "delete": null
+      },
+      "fields": [],
+      "indexes": []
+    },
+    {
+      "name": "vinculos_familiares",
+      "type": "base",
+      "apiRules": {
+        "list": null,
+        "view": null,
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "fields": [],
+      "indexes": []
+    },
+    {
+      "name": "procedimentos",
+      "type": "base",
+      "apiRules": {
+        "list": null,
+        "view": null,
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "fields": [],
+      "indexes": []
+    },
+    {
+      "name": "agendamentos",
+      "type": "base",
+      "apiRules": {
+        "list": "",
+        "view": null,
+        "create": "",
+        "update": null,
+        "delete": null
+      },
+      "fields": [],
+      "indexes": []
+    },
+    {
+      "name": "filas_espera",
+      "type": "base",
+      "apiRules": {
+        "list": null,
+        "view": null,
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "fields": [],
+      "indexes": []
+    },
+    {
+      "name": "odontogramas_snapshots",
+      "type": "base",
+      "apiRules": {
+        "list": null,
+        "view": null,
+        "create": "@request.auth.id != ''",
+        "update": null,
+        "delete": null
+      },
+      "fields": [],
+      "indexes": []
+    },
+    {
+      "name": "evolucoes_clinicas",
+      "type": "base",
+      "apiRules": {
+        "list": null,
+        "view": null,
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "fields": [],
+      "indexes": []
+    },
+    {
+      "name": "anamneses",
+      "type": "base",
+      "apiRules": {
+        "list": null,
+        "view": null,
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "fields": [],
+      "indexes": []
+    },
+    {
+      "name": "planos_tratamento",
+      "type": "base",
+      "apiRules": {
+        "list": null,
+        "view": null,
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "fields": [],
+      "indexes": []
+    },
+    {
+      "name": "orcamentos",
+      "type": "base",
+      "apiRules": {
+        "list": null,
+        "view": null,
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "fields": [],
+      "indexes": []
+    },
+    {
+      "name": "lancamentos_financeiros",
+      "type": "base",
+      "apiRules": {
+        "list": null,
+        "view": null,
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [],
+      "indexes": []
+    },
+    {
+      "name": "messages_lembretes",
+      "type": "base",
+      "apiRules": {
+        "list": null,
+        "view": "@request.auth.id != ''",
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "fields": [],
+      "indexes": []
+    },
+    {
+      "name": "exames_anexos",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": null,
+        "create": null,
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [],
+      "indexes": []
+    },
+    {
+      "name": "prescricoes",
+      "type": "base",
+      "apiRules": {
+        "list": null,
+        "view": null,
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [],
+      "indexes": []
+    },
+    {
+      "name": "auditoria_acesso",
+      "type": "base",
+      "apiRules": {
+        "list": null,
+        "view": null,
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "fields": [],
+      "indexes": []
+    }
+  ]
+}
