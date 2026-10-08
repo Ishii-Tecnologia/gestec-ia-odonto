@@ -7,6 +7,7 @@ import {
   PacienteRecord,
   ProcedimentoRecord,
   FilaEsperaRecord,
+  SalaRecord,
 } from '@/types/gestec'
 import { registrarAuditoria } from '@/lib/pocketbase/auditoria'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -50,7 +51,7 @@ import { Link } from 'react-router-dom'
 type ViewMode = 'dia' | 'semana' | 'cadeira'
 
 export default function Agenda() {
-  const { tenantId, user, perfil } = useAuth()
+  const { tenantId, user, perfil, selectedUnidadeId, selectedUnidade, unidades } = useAuth()
   const { toast } = useToast()
 
   const [agendamentos, setAgendamentos] = useState<AgendamentoRecord[]>([])
@@ -58,6 +59,7 @@ export default function Agenda() {
   const [pacientes, setPacientes] = useState<PacienteRecord[]>([])
   const [procedimentos, setProcedimentos] = useState<ProcedimentoRecord[]>([])
   const [filaEspera, setFilaEspera] = useState<FilaEsperaRecord[]>([])
+  const [salasDisponiveis, setSalasDisponiveis] = useState<SalaRecord[]>([])
   const [loading, setLoading] = useState(true)
 
   // Filtros da Agenda
@@ -69,6 +71,8 @@ export default function Agenda() {
   // Modal Novo Agendamento
   const [modalAberto, setModalAberto] = useState(false)
   const [salvando, setSalvando] = useState(false)
+  const [agendamentoUnidadeId, setAgendamentoUnidadeId] = useState<string>('')
+  const [agendamentoSalaId, setAgendamentoSalaId] = useState<string>('')
   const [pacienteId, setPacienteId] = useState('')
   const [profissionalId, setProfissionalId] = useState('')
   const [procedimentoNome, setProcedimentoNome] = useState('')
@@ -83,8 +87,22 @@ export default function Agenda() {
   const carregarDados = async () => {
     setLoading(true)
     try {
-      const [agRes, profRes, pacRes, procRes, filaRes] = await Promise.all([
+      let agFilter = tenantId ? `tenant_id = '${tenantId}'` : ''
+      if (selectedUnidadeId && selectedUnidadeId !== 'todas') {
+        agFilter = agFilter
+          ? `${agFilter} && unidade_id = '${selectedUnidadeId}'`
+          : `unidade_id = '${selectedUnidadeId}'`
+      }
+
+      // Buscar salas da unidade selecionada ou todas do tenant
+      let salasFilter = tenantId ? `tenant_id = '${tenantId}' && ativo = true` : 'ativo = true'
+      if (selectedUnidadeId && selectedUnidadeId !== 'todas') {
+        salasFilter += ` && unidade_id = '${selectedUnidadeId}'`
+      }
+
+      const [agRes, profRes, pacRes, procRes, filaRes, salasRes] = await Promise.all([
         pb.collection('agendamentos').getList<AgendamentoRecord>(1, 200, {
+          filter: agFilter || undefined,
           sort: 'data_inicio',
           expand: 'paciente_id,profissional_id',
         }),
@@ -103,6 +121,13 @@ export default function Agenda() {
           sort: 'prioridade',
           expand: 'paciente_id',
         }),
+        pb
+          .collection('salas')
+          .getList<SalaRecord>(1, 50, {
+            filter: salasFilter,
+            sort: 'ordem,nome',
+          })
+          .catch(() => ({ items: [] as SalaRecord[] })),
       ])
 
       setAgendamentos(agRes.items)
@@ -110,9 +135,14 @@ export default function Agenda() {
       setPacientes(pacRes.items)
       setProcedimentos(procRes.items)
       setFilaEspera(filaRes.items)
+      setSalasDisponiveis(salasRes.items)
 
       if (profRes.items.length > 0 && !profissionalId) {
         setProfissionalId(profRes.items[0].id)
+      }
+      if (salasRes.items.length > 0) {
+        setSalaSelecionada(salasRes.items[0].nome)
+        setAgendamentoSalaId(salasRes.items[0].id)
       }
     } catch (err: any) {
       console.error('Erro ao carregar dados da agenda:', err)
@@ -132,7 +162,7 @@ export default function Agenda() {
     return () => {
       unsubscribe.then((unsub) => unsub())
     }
-  }, [tenantId])
+  }, [tenantId, selectedUnidadeId])
 
   // Checagem de Concorrência e Conflito de Horário em Tempo Real (RF-002 / CA-Agenda)
   const verificarConflito = (
@@ -208,9 +238,15 @@ export default function Agenda() {
       const dataInicioStr = `${selectedDate}T${horaInicio}:00`
       const dataFimStr = `${selectedDate}T${horaFim}:00`
 
-      // Criar agendamento base
+      const targetUnidadeId =
+        agendamentoUnidadeId ||
+        (selectedUnidadeId !== 'todas' ? selectedUnidadeId : unidades[0]?.id || '')
+
+      // Criar agendamento base com tenant_id e unidade_id
       const novo = await pb.collection('agendamentos').create<AgendamentoRecord>({
         tenant_id: tenantId,
+        unidade_id: targetUnidadeId,
+        sala_id: agendamentoSalaId || undefined,
         paciente_id: pacienteId,
         profissional_id: profissionalId,
         procedimento: procedimentoNome,
@@ -392,13 +428,24 @@ export default function Agenda() {
           {/* Seletor de Cadeira / Sala */}
           <Select value={filtroSala} onValueChange={setFiltroSala}>
             <SelectTrigger className="h-8 text-xs w-48">
-              <SelectValue placeholder="Cadeira Clínica" />
+              <SelectValue placeholder="Sala / Cadeira" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="todos">Todas as Cadeiras</SelectItem>
-              <SelectItem value="Cadeira 1 - Ortodontia">Cadeira 1 - Ortodontia</SelectItem>
-              <SelectItem value="Cadeira 2 - Clínica Geral">Cadeira 2 - Clínica Geral</SelectItem>
-              <SelectItem value="Cadeira 3 - Cirurgia">Cadeira 3 - Cirurgia</SelectItem>
+              <SelectItem value="todos">Todas as Salas</SelectItem>
+              {salasDisponiveis.map((s) => (
+                <SelectItem key={s.id} value={s.nome}>
+                  {s.nome}
+                </SelectItem>
+              ))}
+              {salasDisponiveis.length === 0 && (
+                <>
+                  <SelectItem value="Cadeira 1 - Ortodontia">Cadeira 1 - Ortodontia</SelectItem>
+                  <SelectItem value="Cadeira 2 - Clínica Geral">
+                    Cadeira 2 - Clínica Geral
+                  </SelectItem>
+                  <SelectItem value="Cadeira 3 - Cirurgia">Cadeira 3 - Cirurgia</SelectItem>
+                </>
+              )}
             </SelectContent>
           </Select>
         </div>
@@ -710,17 +757,55 @@ export default function Agenda() {
             </div>
 
             <div className="space-y-1">
+              <Label className="text-xs">Unidade de Atendimento</Label>
+              <Select
+                value={
+                  agendamentoUnidadeId ||
+                  (selectedUnidadeId !== 'todas' ? selectedUnidadeId : unidades[0]?.id || '')
+                }
+                onValueChange={(val) => {
+                  setAgendamentoUnidadeId(val)
+                }}
+              >
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Selecione a Unidade..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {unidades.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1">
               <Label className="text-xs">Cadeira / Sala de Atendimento</Label>
-              <Select value={salaSelecionada} onValueChange={setSalaSelecionada}>
+              <Select
+                value={salaSelecionada}
+                onValueChange={(val) => {
+                  setSalaSelecionada(val)
+                  const sObj = salasDisponiveis.find((s) => s.nome === val)
+                  if (sObj) setAgendamentoSalaId(sObj.id)
+                }}
+              >
                 <SelectTrigger className="h-8 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Cadeira 1 - Ortodontia">Cadeira 1 - Ortodontia</SelectItem>
-                  <SelectItem value="Cadeira 2 - Clínica Geral">
-                    Cadeira 2 - Clínica Geral
-                  </SelectItem>
-                  <SelectItem value="Cadeira 3 - Cirurgia">Cadeira 3 - Cirurgia</SelectItem>
+                  {salasDisponiveis.map((s) => (
+                    <SelectItem key={s.id} value={s.nome}>
+                      {s.nome}
+                    </SelectItem>
+                  ))}
+                  {salasDisponiveis.length === 0 && (
+                    <>
+                      <SelectItem value="Consultório 1">Consultório 1</SelectItem>
+                      <SelectItem value="Consultório 2">Consultório 2</SelectItem>
+                      <SelectItem value="Consultório 3">Consultório 3</SelectItem>
+                    </>
+                  )}
                 </SelectContent>
               </Select>
             </div>

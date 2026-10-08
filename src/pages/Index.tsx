@@ -24,7 +24,16 @@ import {
 import { Link } from 'react-router-dom'
 
 export default function Index() {
-  const { user, tenant, perfil, hasModule, isSuperAdmin, isOwner } = useAuth()
+  const {
+    user,
+    tenant,
+    perfil,
+    hasModule,
+    isSuperAdmin,
+    isOwner,
+    selectedUnidadeId,
+    selectedUnidade,
+  } = useAuth()
   const [agendamentosHoje, setAgendamentosHoje] = useState<AgendamentoRecord[]>([])
   const [pacientesTotal, setPacientesTotal] = useState<number>(0)
   const [pacientesRisco, setPacientesRisco] = useState<PacienteRecord[]>([])
@@ -39,10 +48,14 @@ export default function Index() {
     async function carregarDashboard() {
       setLoading(true)
       try {
-        // 1. Agendamentos de hoje filtrados por tenant
-        const filterAg = tenantId
-          ? `tenant_id = '${tenantId}' && data_inicio >= '${todayStr}T00:00:00' && data_inicio <= '${todayStr}T23:59:59'`
-          : `data_inicio >= '${todayStr}T00:00:00' && data_inicio <= '${todayStr}T23:59:59'`
+        // 1. Agendamentos de hoje filtrados por tenant e unidade (se selecionada)
+        const conds: string[] = []
+        if (tenantId) conds.push(`tenant_id = '${tenantId}'`)
+        conds.push(`data_inicio >= '${todayStr}T00:00:00' && data_inicio <= '${todayStr}T23:59:59'`)
+        if (selectedUnidadeId && selectedUnidadeId !== 'todas') {
+          conds.push(`unidade_id = '${selectedUnidadeId}'`)
+        }
+        const filterAg = conds.join(' && ')
 
         const agRes = await pb.collection('agendamentos').getList<AgendamentoRecord>(1, 20, {
           filter: filterAg,
@@ -85,7 +98,7 @@ export default function Index() {
       }
     }
     carregarDashboard()
-  }, [hasFinanceiro, todayStr, tenantId])
+  }, [hasFinanceiro, todayStr, tenantId, selectedUnidadeId])
 
   // Taxa de ocupação aproximada
   const ocupacaoPct = Math.min(Math.round((agendamentosHoje.length / 16) * 100), 100)
@@ -117,6 +130,12 @@ export default function Index() {
             <span className="font-semibold text-slate-700">
               {tenant?.nome || 'Unidade Principal'}
             </span>
+            {selectedUnidade && (
+              <>
+                {' • '}
+                <span className="text-[#0E7490] font-medium">{selectedUnidade.nome}</span>
+              </>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">

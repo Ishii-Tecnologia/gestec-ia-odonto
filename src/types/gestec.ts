@@ -51,21 +51,34 @@ export interface TenantModulos {
   api_publica?: boolean
 }
 
+export type TenantSituacao = 'ativa' | 'suspensa'
+
 export interface SalaRecord {
   id: string
+  tenant_id?: string
+  unidade_id: string
   nome: string
   descricao?: string
-  cadeiras_qtd: number
-  ativo: boolean
+  cadeiras_qtd?: number
+  ativo?: boolean
+  ordem?: number
+  created?: string
+  updated?: string
 }
 
 export interface UnidadeRecord {
   id: string
+  tenant_id: string
   nome: string
+  endereco?: string
+  telefone?: string
   cidade?: string
   estado?: string
-  ativo: boolean
-  salas: SalaRecord[]
+  ativa?: boolean
+  ordem?: number
+  salas?: SalaRecord[]
+  created?: string
+  updated?: string
 }
 
 export interface TenantRecord {
@@ -74,6 +87,8 @@ export interface TenantRecord {
   razao_social?: string
   cnpj?: string
   plano: PlanoTenant
+  situacao?: TenantSituacao
+  configuracoes?: Record<string, any>
   modulos_ativos: TenantModulos
   limites?: {
     profissionais_max?: number
@@ -94,6 +109,8 @@ export interface UserRecord {
   tenant_id?: string
   perfil?: UserPerfil
   cro?: string
+  todas_unidades?: boolean
+  unidades_ids?: string[]
   created?: string
   updated?: string
 }
@@ -153,6 +170,8 @@ export interface ProcedimentoRecord {
 export interface AgendamentoRecord {
   id: string
   tenant_id: string
+  unidade_id?: string
+  sala_id?: string
   paciente_id: string
   profissional_id: string
   procedimento: string

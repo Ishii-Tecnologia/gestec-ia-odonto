@@ -101,6 +101,9 @@ export const Layout: React.FC<{ children?: React.ReactNode }> = ({ children }) =
     isSuperAdmin,
     isOwner,
     switchPerfilSimulado,
+    unidades,
+    selectedUnidadeId,
+    setSelectedUnidadeId,
   } = useAuth()
 
   const location = useLocation()
@@ -154,28 +157,33 @@ export const Layout: React.FC<{ children?: React.ReactNode }> = ({ children }) =
             </button>
           </div>
 
-          {/* Seletor Rápido de Perfil para Demonstração de RBAC */}
+          {/* Seletor Rápido de Perfil para Demonstração de RBAC e Indicador de Tenant */}
           {!collapsed && (
-            <div className="p-3 border-b border-slate-100 bg-slate-50/50">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1">
-                  <UserCheck className="w-3 h-3 text-[#0E7490]" />
-                  Perfil em Uso (RBAC)
-                </span>
+            <div className="p-3 border-b border-slate-100 bg-slate-50/50 space-y-2">
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                    <UserCheck className="w-3 h-3 text-[#0E7490]" />
+                    Perfil em Uso (RBAC)
+                  </span>
+                </div>
+                <Select
+                  value={perfil}
+                  onValueChange={(val: UserPerfil) => switchPerfilSimulado(val)}
+                >
+                  <SelectTrigger className="h-7 text-[11px] bg-white border-slate-200">
+                    <SelectValue placeholder="Selecione o perfil..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="superadmin">Super Admin (Plataforma)</SelectItem>
+                    <SelectItem value="owner">Owner (Dra. Renata)</SelectItem>
+                    <SelectItem value="dentista">Dentista (Dr. Marcelo)</SelectItem>
+                    <SelectItem value="recepcao">Recepção (Camila)</SelectItem>
+                    <SelectItem value="financeiro">Financeiro (Eduardo)</SelectItem>
+                    <SelectItem value="asb">ASB (Juliana)</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-              <Select value={perfil} onValueChange={(val: UserPerfil) => switchPerfilSimulado(val)}>
-                <SelectTrigger className="h-7 text-[11px] bg-white border-slate-200">
-                  <SelectValue placeholder="Selecione o perfil..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="superadmin">Super Admin (Plataforma)</SelectItem>
-                  <SelectItem value="owner">Owner (Dra. Renata)</SelectItem>
-                  <SelectItem value="dentista">Dentista (Dr. Marcelo)</SelectItem>
-                  <SelectItem value="recepcao">Recepção (Camila)</SelectItem>
-                  <SelectItem value="financeiro">Financeiro (Eduardo)</SelectItem>
-                  <SelectItem value="asb">ASB (Juliana)</SelectItem>
-                </SelectContent>
-              </Select>
             </div>
           )}
 
@@ -294,8 +302,40 @@ export const Layout: React.FC<{ children?: React.ReactNode }> = ({ children }) =
               <Menu className="w-4 h-4" />
             </button>
 
+            {/* Seletor Global de Unidade do Usuário */}
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 bg-cyan-50/60 border border-cyan-200/80 rounded-lg px-2.5 py-1">
+                <Building2 className="w-4 h-4 text-[#0E7490] shrink-0" />
+                <div className="flex flex-col">
+                  <span className="text-[9px] uppercase tracking-wider font-semibold text-[#0E7490]">
+                    Unidade Operacional
+                  </span>
+                  <Select
+                    value={selectedUnidadeId}
+                    onValueChange={(val) => setSelectedUnidadeId(val)}
+                  >
+                    <SelectTrigger className="h-6 text-xs font-medium border-0 p-0 shadow-none bg-transparent text-slate-800 focus:ring-0 gap-1.5 w-auto max-w-[190px]">
+                      <SelectValue placeholder="Selecione a Unidade..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(isSuperAdmin() || isOwner() || user?.todas_unidades !== false) && (
+                        <SelectItem value="todas" className="text-xs font-semibold">
+                          Todas as Unidades (Visão Consolidada)
+                        </SelectItem>
+                      )}
+                      {unidades.map((u) => (
+                        <SelectItem key={u.id} value={u.id} className="text-xs">
+                          {u.nome} {!u.ativa && '(Inativa)'}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+
             {/* Global Search Bar */}
-            <div className="relative w-64 md:w-80 hidden sm:block">
+            <div className="relative w-48 md:w-64 hidden xl:block">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
               <Input
                 placeholder="Buscar paciente, prontuário..."

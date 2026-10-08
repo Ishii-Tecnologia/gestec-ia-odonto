@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import pb from './client'
-import { TenantRecord, UserPerfil, UserRecord, ModuloId } from '@/types/gestec'
+import { TenantRecord, UserPerfil, UserRecord, ModuloId, UnidadeRecord } from '@/types/gestec'
 import { validarDependenciasModulo } from '@/services/entitlements'
 
 interface AuthContextType {
@@ -10,6 +10,12 @@ interface AuthContextType {
   tenantId: string
   isLoading: boolean
   allTenants: TenantRecord[]
+  unidades: UnidadeRecord[]
+  selectedUnidadeId: string | 'todas'
+  selectedUnidade: UnidadeRecord | null
+  setSelectedUnidadeId: (id: string | 'todas') => void
+  userHasUnidadeAccess: (unidadeId: string) => boolean
+  refreshUnidades: () => Promise<void>
   login: (email: string, pass: string) => Promise<void>
   logout: () => void
   switchTenant: (newTenantId: string) => Promise<void>
@@ -30,8 +36,73 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<UserRecord | null>(null)
   const [tenant, setTenant] = useState<TenantRecord | null>(null)
   const [allTenants, setAllTenants] = useState<TenantRecord[]>([])
+  const [unidades, setUnidades] = useState<UnidadeRecord[]>([])
+  const [selectedUnidadeId, setSelectedUnidadeIdState] = useState<string | 'todas'>(() => {
+    return localStorage.getItem('gestec_selected_unidade') || 'todas'
+  })
   const [simulatedPerfil, setSimulatedPerfil] = useState<UserPerfil | null>(null)
   const [isLoading, setIsLoading] = useState<boolean>(true)
+
+  const setSelectedUnidadeId = (id: string | 'todas') => {
+    setSelectedUnidadeIdState(id)
+    localStorage.setItem('gestec_selected_unidade', id)
+  }
+
+  // Carregar unidades do tenant
+  const loadUnidades = async (tId: string, currentUser?: UserRecord | null) => {
+    if (!tId) {
+      setUnidades([])
+      return
+    }
+    try {
+      const res = await pb.collection('unidades').getList<UnidadeRecord>(1, 100, {
+        filter: `tenant_id = '${tId}'`,
+        sort: 'ordem,nome',
+      })
+      let items = res.items
+
+      // Filtrar conforme escopo do usuário se ele tiver escopo restrito
+      const targetUser = currentUser !== undefined ? currentUser : user
+      const isUserSuperAdmin = (simulatedPerfil || targetUser?.perfil) === 'superadmin'
+      const isUserOwner = (simulatedPerfil || targetUser?.perfil) === 'owner'
+
+      if (targetUser && !isUserSuperAdmin && !isUserOwner && targetUser.todas_unidades === false) {
+        const allowedIds = targetUser.unidades_ids || []
+        items = items.filter((u) => allowedIds.includes(u.id))
+      }
+
+      setUnidades(items)
+
+      // Se a unidade selecionada não está na lista ou está 'todas' mas usuário tem escopo restrito
+      setSelectedUnidadeIdState((prev) => {
+        if (
+          targetUser &&
+          !isUserSuperAdmin &&
+          !isUserOwner &&
+          targetUser.todas_unidades === false
+        ) {
+          if (items.length > 0 && (!items.some((u) => u.id === prev) || prev === 'todas')) {
+            const defaultId = items[0].id
+            localStorage.setItem('gestec_selected_unidade', defaultId)
+            return defaultId
+          }
+        } else if (prev !== 'todas' && !items.some((u) => u.id === prev) && items.length > 0) {
+          // Se era uma unidade que não existe mais
+          return 'todas'
+        }
+        return prev
+      })
+    } catch (err) {
+      console.warn('Erro ao carregar unidades:', err)
+      setUnidades([])
+    }
+  }
+
+  const refreshUnidades = async () => {
+    if (tenant?.id) {
+      await loadUnidades(tenant.id, user)
+    }
+  }
 
   // Carregar dados de tenant e autenticação
   const loadTenantAndUser = async () => {
@@ -57,19 +128,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const u = authModel as unknown as UserRecord
         setUser(u)
 
+        let resolvedTenant: TenantRecord | null = null
         if (u.tenant_id) {
           try {
-            const t = await pb.collection('tenants').getOne<TenantRecord>(u.tenant_id)
-            setTenant(t)
+            resolvedTenant = await pb.collection('tenants').getOne<TenantRecord>(u.tenant_id)
+            setTenant(resolvedTenant)
           } catch {
-            if (currentTenant) setTenant(currentTenant)
+            if (currentTenant) {
+              resolvedTenant = currentTenant
+              setTenant(currentTenant)
+            }
           }
         } else if (currentTenant) {
+          resolvedTenant = currentTenant
           setTenant(currentTenant)
+        }
+
+        if (resolvedTenant) {
+          await loadUnidades(resolvedTenant.id, u)
         }
       } else {
         setUser(null)
-        if (currentTenant) setTenant(currentTenant)
+        if (currentTenant) {
+          setTenant(currentTenant)
+          await loadUnidades(currentTenant.id, null)
+        }
       }
     } catch (err) {
       console.error('Erro ao carregar tenant e usuário:', err)
@@ -101,6 +184,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const t = await pb.collection('tenants').getOne<TenantRecord>(newTenantId)
       setTenant(t)
+      await loadUnidades(t.id, user)
     } catch (err) {
       console.error('Erro ao alternar tenant:', err)
     }
@@ -108,6 +192,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const switchPerfilSimulado = (novoPerfil: UserPerfil) => {
     setSimulatedPerfil(novoPerfil)
+  }
+
+  // Checa se o usuário atual tem acesso a uma unidade específica
+  const userHasUnidadeAccess = (unidadeId: string): boolean => {
+    if (isSuperAdmin() || isOwner()) return true
+    if (!user) return true
+    if (user.todas_unidades !== false) return true
+    return Boolean(user.unidades_ids?.includes(unidadeId))
   }
 
   const refreshTenant = async () => {
@@ -175,6 +267,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }
 
   const tenantId = tenant?.id || user?.tenant_id || 'demo-tenant'
+  const selectedUnidade =
+    selectedUnidadeId === 'todas' ? null : unidades.find((u) => u.id === selectedUnidadeId) || null
 
   return (
     <AuthContext.Provider
@@ -185,6 +279,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         tenantId,
         isLoading,
         allTenants,
+        unidades,
+        selectedUnidadeId,
+        selectedUnidade,
+        setSelectedUnidadeId,
+        userHasUnidadeAccess,
+        refreshUnidades,
         login,
         logout,
         switchTenant,

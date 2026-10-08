@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-07T22:36:19.322Z",
+  "generatedAt": "2026-10-08T21:02:35.530Z",
   "collections": [
     {
       "name": "users",
@@ -56,6 +56,18 @@
           "type": "text",
           "required": false,
           "system": false
+        },
+        {
+          "name": "todas_unidades",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "unidades_ids",
+          "type": "json",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -73,8 +85,24 @@
         "update": "@request.auth.id != ''",
         "delete": null
       },
-      "fields": [],
-      "indexes": []
+      "fields": [
+        {
+          "name": "situacao",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["ativa", "suspensa"]
+        },
+        {
+          "name": "configuracoes",
+          "type": "json",
+          "required": false,
+          "system": false
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX `idx_tenants_cnpj_unique` ON `tenants` (cnpj) WHERE cnpj != '' AND cnpj IS NOT NULL"
+      ]
     },
     {
       "name": "profissionais",
@@ -138,7 +166,20 @@
         "update": null,
         "delete": null
       },
-      "fields": [],
+      "fields": [
+        {
+          "name": "unidade_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sala_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        }
+      ],
       "indexes": []
     },
     {
@@ -283,6 +324,144 @@
       },
       "fields": [],
       "indexes": []
+    },
+    {
+      "name": "unidades",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && (@request.auth.perfil = 'superadmin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.perfil = 'superadmin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.perfil = 'superadmin' || @request.auth.perfil = 'owner')",
+        "update": "@request.auth.id != '' && (@request.auth.perfil = 'superadmin' || @request.auth.perfil = 'owner')",
+        "delete": "@request.auth.id != '' && (@request.auth.perfil = 'superadmin' || @request.auth.perfil = 'owner')"
+      },
+      "fields": [
+        {
+          "name": "tenant_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "nome",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "endereco",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "telefone",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ativa",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ordem",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": ["CREATE INDEX idx_unidades_tenant ON unidades (tenant_id, ordem ASC)"]
+    },
+    {
+      "name": "salas",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && (@request.auth.perfil = 'superadmin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.perfil = 'superadmin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.perfil = 'superadmin' || @request.auth.perfil = 'owner')",
+        "update": "@request.auth.id != '' && (@request.auth.perfil = 'superadmin' || @request.auth.perfil = 'owner')",
+        "delete": "@request.auth.id != '' && (@request.auth.perfil = 'superadmin' || @request.auth.perfil = 'owner')"
+      },
+      "fields": [
+        {
+          "name": "tenant_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "unidade_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "unidades"
+        },
+        {
+          "name": "nome",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "descricao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cadeiras_qtd",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ativo",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ordem",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_salas_unidade ON salas (unidade_id, ordem ASC)",
+        "CREATE INDEX idx_salas_tenant ON salas (tenant_id)"
+      ]
     }
   ]
 }
