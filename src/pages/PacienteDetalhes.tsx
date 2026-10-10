@@ -411,7 +411,7 @@ export default function PacienteDetalhes() {
             <Button asChild className="bg-[#0E7490] hover:bg-[#155E75] text-white text-xs h-9">
               <Link to={`/prontuario/${paciente.id}`}>
                 <Stethoscope className="w-4 h-4 mr-1.5" />
-                Abrir Prontuário Clínico
+                Prontuário & Odontograma (BL-006/007)
               </Link>
             </Button>
           )}

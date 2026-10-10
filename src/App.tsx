@@ -15,6 +15,7 @@ import Agenda from './pages/Agenda'
 import PacientesList from './pages/PacientesList'
 import PacienteDetalhes from './pages/PacienteDetalhes'
 import ProntuarioPage from './pages/ProntuarioPage'
+import { RequireProfile } from './components/RequireProfile'
 import OrcamentosPage from './pages/OrcamentosPage'
 import FinanceiroPage from './pages/FinanceiroPage'
 import RelatoriosPage from './pages/RelatoriosPage'
@@ -41,8 +42,22 @@ const App = () => (
             <Route path="/agenda" element={<Agenda />} />
             <Route path="/pacientes" element={<PacientesList />} />
             <Route path="/pacientes/:id" element={<PacienteDetalhes />} />
-            <Route path="/prontuario" element={<ProntuarioPage />} />
-            <Route path="/prontuario/:pacienteId" element={<ProntuarioPage />} />
+            <Route
+              path="/prontuario"
+              element={
+                <RequireProfile allowed={['dentista', 'owner', 'superadmin']}>
+                  <ProntuarioPage />
+                </RequireProfile>
+              }
+            />
+            <Route
+              path="/prontuario/:pacienteId"
+              element={
+                <RequireProfile allowed={['dentista', 'owner', 'superadmin']}>
+                  <ProntuarioPage />
+                </RequireProfile>
+              }
+            />
             <Route path="/orcamentos" element={<OrcamentosPage />} />
             <Route path="/financeiro" element={<FinanceiroPage />} />
             <Route path="/relatorios" element={<RelatoriosPage />} />

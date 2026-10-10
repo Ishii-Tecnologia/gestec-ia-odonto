@@ -235,6 +235,7 @@ export interface DenteFaceStatus {
     | 'extracao'
     | 'protese'
     | 'facetas'
+    | 'implante'
     | 'ausente'
   faces?: ('V' | 'L' | 'M' | 'D' | 'O')[]
   cor?: string
@@ -244,19 +245,27 @@ export interface DenteFaceStatus {
 export interface OdontogramaSnapshotRecord {
   id: string
   tenant_id: string
+  unidade_id?: string
   paciente_id: string
+  profissional_id?: string
   data: string
   atendimento_id?: string
   payload: Record<string, DenteFaceStatus>
   dentista_nome?: string
+  cro?: string
+  versao?: number
+  descricao_alteracao?: string
   created?: string
 }
 
 export interface EvolucaoClinicaRecord {
   id: string
   tenant_id: string
+  unidade_id?: string
   paciente_id: string
+  profissional_id?: string
   data: string
+  tipo?: 'anamnese' | 'evolucao' | 'prescricao' | 'observacao' | 'retificacao' | 'procedimento'
   especialidade:
     | 'geral'
     | 'exodontia'
@@ -265,9 +274,14 @@ export interface EvolucaoClinicaRecord {
     | 'periodontia'
     | 'protese'
     | 'implantodontia'
+    | 'odontopediatria'
+    | 'estetica'
   descricao: string
   dentista_nome?: string
   cro?: string
+  retifica_evolucao_id?: string
+  motivo_retificacao?: string
+  procedimento_relacionado?: string
   created?: string
 }
 
@@ -282,7 +296,11 @@ export interface AnamnesePergunta {
 export interface AnamneseRecord {
   id: string
   tenant_id: string
+  unidade_id?: string
   paciente_id: string
+  profissional_id?: string
+  dentista_nome?: string
+  cro?: string
   perguntas: AnamnesePergunta[]
   respostas?: Record<string, string>
   status: 'pendente' | 'respondida' | 'assinada'

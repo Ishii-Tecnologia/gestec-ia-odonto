@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-10T18:23:31.342Z",
+  "generatedAt": "2026-10-10T21:14:54.819Z",
   "collections": [
     {
       "name": "users",
@@ -467,7 +467,74 @@
         "update": null,
         "delete": null
       },
-      "fields": [],
+      "fields": [
+        {
+          "name": "tenant_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "unidade_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "paciente_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "profissional_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "atendimento_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "payload",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "dentista_nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cro",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "versao",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "descricao_alteracao",
+          "type": "text",
+          "required": false,
+          "system": false
+        }
+      ],
       "indexes": []
     },
     {
@@ -480,20 +547,186 @@
         "update": null,
         "delete": null
       },
-      "fields": [],
+      "fields": [
+        {
+          "name": "tenant_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "unidade_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "paciente_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "profissional_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tipo",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": [
+            "anamnese",
+            "evolucao",
+            "prescricao",
+            "observacao",
+            "retificacao",
+            "procedimento"
+          ]
+        },
+        {
+          "name": "especialidade",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": [
+            "geral",
+            "exodontia",
+            "endodontia",
+            "ortodontia",
+            "periodontia",
+            "protese",
+            "implantodontia",
+            "odontopediatria",
+            "estetica"
+          ]
+        },
+        {
+          "name": "descricao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "dentista_nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cro",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "retifica_evolucao_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "motivo_retificacao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "procedimento_relacionado",
+          "type": "text",
+          "required": false,
+          "system": false
+        }
+      ],
       "indexes": []
     },
     {
       "name": "anamneses",
       "type": "base",
       "apiRules": {
-        "list": null,
-        "view": null,
-        "create": null,
-        "update": null,
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
         "delete": null
       },
-      "fields": [],
+      "fields": [
+        {
+          "name": "tenant_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "unidade_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "paciente_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "profissional_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "perguntas",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "respostas",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["pendente", "respondida", "assinada"]
+        },
+        {
+          "name": "token",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_resposta",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "dentista_nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cro",
+          "type": "text",
+          "required": false,
+          "system": false
+        }
+      ],
       "indexes": []
     },
     {

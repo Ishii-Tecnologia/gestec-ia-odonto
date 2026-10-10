@@ -59,7 +59,7 @@ const NAV_ITEMS: NavItem[] = [
   { name: 'Agenda', path: '/agenda', icon: Calendar, modulo: 'agenda' },
   { name: 'Pacientes', path: '/pacientes', icon: Users, modulo: 'pacientes' },
   {
-    name: 'Prontuário',
+    name: 'Prontuário & Odonto',
     path: '/prontuario',
     icon: Stethoscope,
     modulo: 'prontuario',
