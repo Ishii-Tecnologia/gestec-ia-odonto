@@ -38,17 +38,7 @@ import {
   Building,
 } from 'lucide-react'
 import { MODULOS_POR_PLANO } from '@/services/entitlements'
-
-// Função auxiliar de formatação de CNPJ
-function formatCNPJ(val: string) {
-  const digits = val.replace(/\D/g, '').slice(0, 14)
-  if (digits.length <= 2) return digits
-  if (digits.length <= 5) return `${digits.slice(0, 2)}.${digits.slice(2)}`
-  if (digits.length <= 8) return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5)}`
-  if (digits.length <= 12)
-    return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8)}`
-  return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12, 14)}`
-}
+import { validarCNPJ, formatarCNPJ } from '@/lib/validadores'
 
 export default function SuperAdminPainel() {
   const { switchTenant } = useAuth()
@@ -140,6 +130,15 @@ export default function SuperAdminPainel() {
 
     const cnpjLimpo = novoCnpj.trim()
     if (cnpjLimpo) {
+      if (!validarCNPJ(cnpjLimpo)) {
+        toast({
+          title: 'CNPJ Inválido',
+          description:
+            'O número informado não possui dígitos verificadores válidos segundo o algoritmo oficial (módulo-11).',
+          variant: 'destructive',
+        })
+        return
+      }
       const existe = await checkCnpjExistente(cnpjLimpo)
       if (existe) {
         toast({
@@ -242,6 +241,15 @@ export default function SuperAdminPainel() {
 
     const cnpjLimpo = editCnpj.trim()
     if (cnpjLimpo) {
+      if (!validarCNPJ(cnpjLimpo)) {
+        toast({
+          title: 'CNPJ Inválido',
+          description:
+            'O número informado não possui dígitos verificadores válidos segundo o algoritmo oficial (módulo-11).',
+          variant: 'destructive',
+        })
+        return
+      }
       const existe = await checkCnpjExistente(cnpjLimpo, editingTenant.id)
       if (existe) {
         toast({
@@ -377,11 +385,11 @@ export default function SuperAdminPainel() {
                 <Input
                   placeholder="00.000.000/0001-00"
                   value={novoCnpj}
-                  onChange={(e) => setNovoCnpj(formatCNPJ(e.target.value))}
+                  onChange={(e) => setNovoCnpj(formatarCNPJ(e.target.value))}
                   className="text-xs h-9 font-mono"
                 />
                 <p className="text-[11px] text-slate-500">
-                  Validação automática contra duplicidade entre tenants.
+                  Validação oficial de dígitos verificadores (módulo-11) e unicidade por tenant.
                 </p>
               </div>
 
@@ -641,7 +649,7 @@ export default function SuperAdminPainel() {
               <Label className="text-xs">CNPJ (Único na plataforma)</Label>
               <Input
                 value={editCnpj}
-                onChange={(e) => setEditCnpj(formatCNPJ(e.target.value))}
+                onChange={(e) => setEditCnpj(formatarCNPJ(e.target.value))}
                 className="text-xs h-9 font-mono"
               />
             </div>

@@ -1,7 +1,8 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Link, useLocation, Outlet } from 'react-router-dom'
 import { useAuth } from '@/lib/pocketbase/auth-context'
-import { ModuloId, UserPerfil } from '@/types/gestec'
+import { ModuloId, UserPerfil, AgendamentoRecord } from '@/types/gestec'
+import pb from '@/lib/pocketbase/client'
 import {
   LayoutDashboard,
   Calendar,
@@ -110,6 +111,38 @@ export const Layout: React.FC<{ children?: React.ReactNode }> = ({ children }) =
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [pendenciasConfirmacao, setPendenciasConfirmacao] = useState<AgendamentoRecord[]>([])
+
+  // Carregar pendências de confirmação para o sino de notificações (BL-005)
+  useEffect(() => {
+    if (!tenant?.id) return
+    const carregarPendencias = async () => {
+      try {
+        const hojeIso = new Date().toISOString().slice(0, 10)
+        let filter = `tenant_id = '${tenant.id}' && status = 'pendente' && data_inicio >= '${hojeIso}T00:00:00'`
+        if (selectedUnidadeId && selectedUnidadeId !== 'todas') {
+          filter += ` && unidade_id = '${selectedUnidadeId}'`
+        }
+
+        const res = await pb.collection('agendamentos').getList<AgendamentoRecord>(1, 15, {
+          filter,
+          sort: 'data_inicio',
+          expand: 'paciente_id,profissional_id',
+        })
+        setPendenciasConfirmacao(res.items)
+      } catch (e) {
+        // silencioso
+      }
+    }
+
+    carregarPendencias()
+    const unsub = pb.collection('agendamentos').subscribe('*', () => {
+      carregarPendencias()
+    })
+    return () => {
+      unsub.then((u) => u())
+    }
+  }, [tenant?.id, selectedUnidadeId])
 
   return (
     <div className="min-h-screen flex bg-[#F8FAFC]">
@@ -361,32 +394,70 @@ export const Layout: React.FC<{ children?: React.ReactNode }> = ({ children }) =
               </Link>
             </Button>
 
-            {/* Notificações */}
+            {/* Notificações (BL-005: alimentado pelas pendências de confirmação) */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="relative h-9 w-9 text-slate-500">
                   <Bell className="w-4 h-4" />
-                  <span className="w-2 h-2 rounded-full bg-cyan-600 absolute top-2 right-2"></span>
+                  {pendenciasConfirmacao.length > 0 ? (
+                    <span className="flex items-center justify-center text-[10px] font-bold text-white rounded-full bg-amber-500 absolute -top-0.5 -right-0.5 h-4 w-4">
+                      {pendenciasConfirmacao.length}
+                    </span>
+                  ) : (
+                    <span className="w-2 h-2 rounded-full bg-cyan-600 absolute top-2 right-2"></span>
+                  )}
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-72 p-2">
-                <DropdownMenuLabel className="text-xs text-slate-500">
-                  Notificações Operacionais
-                </DropdownMenuLabel>
+              <DropdownMenuContent align="end" className="w-80 p-2">
+                <div className="flex items-center justify-between px-2 py-1">
+                  <span className="text-xs font-semibold text-slate-800">
+                    Pendências de Confirmação
+                  </span>
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] bg-amber-50 text-amber-800 border-amber-200"
+                  >
+                    {pendenciasConfirmacao.length} pendente(s)
+                  </Badge>
+                </div>
                 <DropdownMenuSeparator />
-                <div className="space-y-1 text-xs text-slate-600 py-1">
-                  <div className="p-2 rounded bg-cyan-50/60 border border-cyan-100">
-                    <p className="font-medium text-slate-800">Conformidade LGPD</p>
-                    <p className="text-[11px] text-slate-500">
-                      Trilha de auditoria append-only operando normalmente.
-                    </p>
-                  </div>
-                  <div className="p-2 rounded hover:bg-slate-50">
-                    <p className="font-medium text-slate-800">Prontuário Imutável</p>
-                    <p className="text-[11px] text-slate-500">
-                      Evoluções gravadas com hash cronológico.
-                    </p>
-                  </div>
+                <div className="space-y-1 text-xs text-slate-600 py-1 max-h-64 overflow-y-auto">
+                  {pendenciasConfirmacao.length === 0 ? (
+                    <div className="p-3 text-center text-[11px] text-slate-400">
+                      Nenhuma pendência de confirmação para os próximos dias.
+                    </div>
+                  ) : (
+                    pendenciasConfirmacao.map((ag) => (
+                      <div
+                        key={ag.id}
+                        className="p-2 rounded bg-amber-50/60 border border-amber-200/60 hover:bg-amber-100/60 transition-colors"
+                      >
+                        <div className="flex items-center justify-between font-medium text-slate-900">
+                          <span className="truncate">
+                            {ag.expand?.paciente_id?.nome || 'Paciente'}
+                          </span>
+                          <span className="font-mono text-[10px] text-amber-800 font-semibold">
+                            {ag.data_inicio.slice(8, 10)}/{ag.data_inicio.slice(5, 7)}{' '}
+                            {ag.data_inicio.slice(11, 16)}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                          {ag.procedimento} • {ag.sala || 'Consultório'}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <DropdownMenuSeparator />
+                <div className="pt-1">
+                  <Button
+                    asChild
+                    variant="ghost"
+                    size="sm"
+                    className="w-full text-xs text-[#0E7490] h-7"
+                  >
+                    <Link to="/agenda">Ver toda a Agenda</Link>
+                  </Button>
                 </div>
               </DropdownMenuContent>
             </DropdownMenu>

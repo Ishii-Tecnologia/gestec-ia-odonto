@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-08T21:02:35.530Z",
+  "generatedAt": "2026-10-10T18:23:31.342Z",
   "collections": [
     {
       "name": "users",
@@ -98,6 +98,55 @@
           "type": "json",
           "required": false,
           "system": false
+        },
+        {
+          "name": "nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "razao_social",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cnpj",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "plano",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": [
+            "consultorio-essencial",
+            "suite-clinica",
+            "suite-gestao",
+            "suite-completa",
+            "custom"
+          ]
+        },
+        {
+          "name": "modulos_ativos",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "limites",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ativo",
+          "type": "bool",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -127,7 +176,106 @@
         "update": "@request.auth.id != ''",
         "delete": "@request.auth.id != ''"
       },
-      "fields": [],
+      "fields": [
+        {
+          "name": "tenant_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "unidade_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cpf",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_nascimento",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "telefone",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "email",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "endereco",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "genero",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["masculino", "feminino", "outro", "nao_informado"]
+        },
+        {
+          "name": "convenio",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "responsavel_legal",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "responsavel_cpf",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "score_evasao",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["ativo", "inativo", "em-tratamento"]
+        },
+        {
+          "name": "tags",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "observacoes",
+          "type": "text",
+          "required": false,
+          "system": false
+        }
+      ],
       "indexes": []
     },
     {
@@ -160,11 +308,11 @@
       "name": "agendamentos",
       "type": "base",
       "apiRules": {
-        "list": "",
-        "view": null,
-        "create": "",
-        "update": null,
-        "delete": null
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
       },
       "fields": [
         {
@@ -175,6 +323,120 @@
         },
         {
           "name": "sala_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "paciente_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "profissional_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "procedimento",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "duracao_minutos",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_inicio",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_fim",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sala",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tipo_consulta",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["primeira_consulta", "retorno", "procedimento", "urgencia", "avaliacao"]
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": [
+            "pendente",
+            "confirmado",
+            "presente",
+            "em_atendimento",
+            "concluido",
+            "cancelado",
+            "falta"
+          ]
+        },
+        {
+          "name": "confirmacao_status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["pendente", "confirmado", "nao_confirmou", "no_show"]
+        },
+        {
+          "name": "tentativa_confirmacao_em",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "confirmado_em",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "motivo_cancelamento_ou_falta",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "origem",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["recepcao", "online", "retorno"]
+        },
+        {
+          "name": "recorrencia",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "observacoes",
           "type": "text",
           "required": false,
           "system": false

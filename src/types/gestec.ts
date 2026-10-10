@@ -132,13 +132,17 @@ export interface ProfissionalRecord {
 export interface PacienteRecord {
   id: string
   tenant_id: string
+  unidade_id?: string
   nome: string
   cpf?: string
   data_nascimento?: string
   telefone?: string
   email?: string
   endereco?: string
+  genero?: 'masculino' | 'feminino' | 'outro' | 'nao_informado'
+  convenio?: string
   responsavel_legal?: string
+  responsavel_cpf?: string
   score_evasao?: number
   status: 'ativo' | 'inativo' | 'em-tratamento'
   tags?: string[]
@@ -179,6 +183,7 @@ export interface AgendamentoRecord {
   data_inicio: string // ISO string YYYY-MM-DDTHH:mm:ss
   data_fim: string
   sala?: string
+  tipo_consulta?: 'primeira_consulta' | 'retorno' | 'procedimento' | 'urgencia' | 'avaliacao'
   status:
     | 'pendente'
     | 'confirmado'
@@ -187,6 +192,10 @@ export interface AgendamentoRecord {
     | 'concluido'
     | 'cancelado'
     | 'falta'
+  confirmacao_status?: 'pendente' | 'confirmado' | 'nao_confirmou' | 'no_show'
+  tentativa_confirmacao_em?: string
+  confirmado_em?: string
+  motivo_cancelamento_ou_falta?: string
   origem?: 'recepcao' | 'online' | 'retorno'
   recorrencia?: {
     frequencia: 'semanal' | 'quinzenal' | 'mensal'

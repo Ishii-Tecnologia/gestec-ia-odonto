@@ -212,13 +212,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }
 
-  // Verificação de Entitlements (BL-002)
+  // Verificação de Entitlements (BL-002): se o módulo não estiver ativo no tenant, o item não funciona
   const hasModule = (modulo: ModuloId): boolean => {
     if (!tenant) return true
-    if (modulo === 'core' || modulo === 'agenda' || modulo === 'pacientes') return true
+    if (modulo === 'core') return true
     const modulos = tenant.modulos_ativos
-    if (!modulos) return false
-    return Boolean(modulos[modulo as keyof typeof modulos])
+    if (!modulos) return true
+    return Boolean(modulos[modulo as keyof typeof modulos] ?? true)
   }
 
   // Alternar módulo dinamicamente para validar CA-MOD-2 (<1 min sem deploy)
@@ -251,9 +251,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isSuperAdmin = (): boolean => perfil === 'superadmin'
   const isOwner = (): boolean => perfil === 'owner' || perfil === 'superadmin'
 
-  // Regra RBAC / LGPD: Apenas clínicos (owner, dentista, superadmin) acessam dados de prontuário e diagnóstico
+  // Regra RBAC / LGPD: Apenas clínicos (owner, dentista, asb, superadmin) acessam dados de prontuário, histórico e diagnóstico
   const canAccessClinical = (): boolean => {
-    return perfil === 'superadmin' || perfil === 'owner' || perfil === 'dentista'
+    return (
+      perfil === 'superadmin' || perfil === 'owner' || perfil === 'dentista' || perfil === 'asb'
+    )
   }
 
   // Apenas gestores acessam relatórios financeiros consolidados globais por padrão

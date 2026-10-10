@@ -37,6 +37,8 @@ export default function Index() {
   const [agendamentosHoje, setAgendamentosHoje] = useState<AgendamentoRecord[]>([])
   const [pacientesTotal, setPacientesTotal] = useState<number>(0)
   const [pacientesRisco, setPacientesRisco] = useState<PacienteRecord[]>([])
+  const [taxaNoShowReal, setTaxaNoShowReal] = useState<number>(0)
+  const [totalAgendamentosRealizados, setTotalAgendamentosRealizados] = useState<number>(0)
   const [faturamentoTotal, setFaturamentoTotal] = useState<number>(0)
   const [loading, setLoading] = useState(true)
 
@@ -73,6 +75,21 @@ export default function Index() {
         setPacientesTotal(pacRes.totalItems)
         const emRisco = pacRes.items.filter((p) => (p.score_evasao || 0) > 50)
         setPacientesRisco(emRisco)
+
+        // 3. Taxa Real de No-Show calculada a partir dos agendamentos reais do tenant (BL-005)
+        const agGeralRes = await pb.collection('agendamentos').getList<AgendamentoRecord>(1, 300, {
+          filter: tenantId ? `tenant_id = '${tenantId}'` : undefined,
+        })
+        const historicos = agGeralRes.items.filter((a) =>
+          ['concluido', 'falta', 'cancelado', 'presente', 'em_atendimento'].includes(a.status),
+        )
+        const noShows = agGeralRes.items.filter(
+          (a) => a.status === 'falta' || a.confirmacao_status === 'no_show',
+        )
+        const taxaCalculada =
+          historicos.length > 0 ? Math.round((noShows.length / historicos.length) * 100) : 0
+        setTaxaNoShowReal(taxaCalculada)
+        setTotalAgendamentosRealizados(historicos.length)
 
         // 3. Faturamento do Mês (se financeiro contratado)
         if (hasFinanceiro) {
@@ -244,19 +261,19 @@ export default function Index() {
           </CardContent>
         </Card>
 
-        {/* Card 4: Taxa de No-Show / Risco de Evasão */}
+        {/* Card 4: Taxa Real de No-Show (BL-005) */}
         <Card className="border-slate-200 shadow-sm relative overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-1 bg-amber-500" />
           <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
             <CardTitle className="text-xs font-medium text-slate-500">
-              Risco de Evasão (BL-014)
+              Taxa Real de No-Show (BL-005)
             </CardTitle>
             <AlertTriangle className="w-4 h-4 text-amber-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-amber-600">{pacientesRisco.length}</div>
+            <div className="text-2xl font-bold text-amber-600">{taxaNoShowReal}%</div>
             <p className="text-[11px] text-slate-500 mt-1">
-              Pacientes com score &gt; 50% sem retorno recente
+              Baseada em {totalAgendamentosRealizados} consultas processadas no tenant
             </p>
           </CardContent>
         </Card>
