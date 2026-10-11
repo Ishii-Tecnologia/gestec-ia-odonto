@@ -7,6 +7,7 @@ export type ModuloId =
   | 'prontuario'
   | 'financeiro'
   | 'orcamentos'
+  | 'comunicacao'
   | 'tiss'
   | 'documentos'
   | 'automacoes'
@@ -42,6 +43,7 @@ export interface TenantModulos {
   prontuario?: boolean
   financeiro?: boolean
   orcamentos?: boolean
+  comunicacao?: boolean
   tiss?: boolean
   documentos?: boolean
   automacoes?: boolean
@@ -400,25 +402,40 @@ export interface LancamentoFinanceiroRecord {
 export interface MessageLembreteRecord {
   id: string
   tenant_id: string
+  unidade_id?: string
   agendamento_id?: string
+  paciente_id?: string
   destinatario_nome: string
   telefone: string
   mensagem: string
-  canal: 'whatsapp' | 'sms'
+  canal: 'whatsapp' | 'sms' | 'in_app'
   tipo_gatilho:
     | 'confirmacao_48h'
     | 'confirmacao_24h'
     | 'retorno_preventivo'
     | 'cobranca_inadimplente'
+    | 'lembrete_manual'
+    | 'boas_vindas'
   status:
     | 'agendado'
     | 'enviado'
     | 'entregue'
     | 'respondido_confirmado'
     | 'respondido_reagendar'
+    | 'pendente_integracao_externa'
     | 'falhou'
   data_envio?: string
+  data_resposta?: string
+  resposta_paciente?: string
+  tentativas?: number
+  erro_motivo?: string
+  enviado_por?: string
   created?: string
+  updated?: string
+  expand?: {
+    paciente_id?: PacienteRecord
+    agendamento_id?: AgendamentoRecord
+  }
 }
 
 export interface ExameAnexoRecord {

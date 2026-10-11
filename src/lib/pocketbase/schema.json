@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-11T20:51:02.792Z",
+  "generatedAt": "2026-10-11T21:02:11.724Z",
   "collections": [
     {
       "name": "users",
@@ -1091,13 +1091,128 @@
       "name": "messages_lembretes",
       "type": "base",
       "apiRules": {
-        "list": null,
+        "list": "@request.auth.id != ''",
         "view": "@request.auth.id != ''",
-        "create": null,
-        "update": null,
-        "delete": null
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
       },
-      "fields": [],
+      "fields": [
+        {
+          "name": "tenant_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "unidade_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "agendamento_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "paciente_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "destinatario_nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "telefone",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "mensagem",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "canal",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["whatsapp", "sms", "in_app"]
+        },
+        {
+          "name": "tipo_gatilho",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": [
+            "confirmacao_48h",
+            "confirmacao_24h",
+            "retorno_preventivo",
+            "cobranca_inadimplente",
+            "lembrete_manual",
+            "boas_vindas"
+          ]
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": [
+            "agendado",
+            "enviado",
+            "entregue",
+            "respondido_confirmado",
+            "respondido_reagendar",
+            "pendente_integracao_externa",
+            "falhou"
+          ]
+        },
+        {
+          "name": "data_envio",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_resposta",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "resposta_paciente",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tentativas",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "erro_motivo",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "enviado_por",
+          "type": "text",
+          "required": false,
+          "system": false
+        }
+      ],
       "indexes": []
     },
     {

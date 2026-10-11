@@ -73,6 +73,12 @@ const NAV_ITEMS: NavItem[] = [
     modulo: 'financeiro',
     financialOnly: true,
   },
+  {
+    name: 'Comunicação & Fila',
+    path: '/comunicacao',
+    icon: MessageSquare,
+    modulo: 'comunicacao',
+  },
   { name: 'Relatórios & BI', path: '/relatorios', icon: BarChart3, modulo: 'bi' },
   {
     name: 'Gestão da Clínica',

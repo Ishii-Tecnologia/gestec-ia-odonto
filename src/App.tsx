@@ -19,6 +19,7 @@ import { RequireProfile } from './components/RequireProfile'
 import OrcamentosPage from './pages/OrcamentosPage'
 import FinanceiroPage from './pages/FinanceiroPage'
 import RelatoriosPage from './pages/RelatoriosPage'
+import ComunicacaoPage from './pages/ComunicacaoPage'
 import AgendamentoPublico from './pages/AgendamentoPublico'
 import OwnerPainel from './pages/OwnerPainel'
 import SuperAdminPainel from './pages/SuperAdminPainel'
@@ -60,6 +61,7 @@ const App = () => (
             />
             <Route path="/orcamentos" element={<OrcamentosPage />} />
             <Route path="/financeiro" element={<FinanceiroPage />} />
+            <Route path="/comunicacao" element={<ComunicacaoPage />} />
             <Route path="/relatorios" element={<RelatoriosPage />} />
             <Route path="/configuracoes" element={<OwnerPainel />} />
             <Route path="/gestao-owner" element={<OwnerPainel />} />
