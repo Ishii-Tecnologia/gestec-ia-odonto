@@ -23,6 +23,7 @@ import {
   Building2,
   Server,
   UserCheck,
+  MessageSquare,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
