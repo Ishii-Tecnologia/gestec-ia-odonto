@@ -42,6 +42,8 @@ import {
   ShieldAlert,
   Edit2,
   Save,
+  FileSpreadsheet,
+  Plus,
 } from 'lucide-react'
 import { ModuloGate } from '@/components/ModuloGate'
 import { validarCPF, formatarCPF, formatarTelefone, calcularIdade } from '@/lib/validadores'
@@ -442,9 +444,15 @@ export default function PacienteDetalhes() {
             </div>
           )}
 
+          {hasModule('orcamentos') && (
+            <TabsTrigger value="orcamentos" className="text-xs">
+              Orçamentos & Planos (BL-008)
+            </TabsTrigger>
+          )}
+
           {hasModule('financeiro') && (
             <TabsTrigger value="financeiro" className="text-xs">
-              Histórico Financeiro
+              Histórico Financeiro (BL-009)
             </TabsTrigger>
           )}
         </TabsList>
@@ -912,18 +920,65 @@ export default function PacienteDetalhes() {
           </TabsContent>
         )}
 
-        {/* 4. Histórico Financeiro */}
+        {/* Aba de Orçamentos vinculados ao Paciente (BL-008) */}
+        {hasModule('orcamentos') && (
+          <TabsContent value="orcamentos" className="space-y-4">
+            <ModuloGate modulo="orcamentos">
+              <Card className="border-slate-200">
+                <CardHeader className="pb-3 flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                      <FileSpreadsheet className="w-4 h-4 text-[#0E7490]" />
+                      Planos de Tratamento e Orçamentos
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      Propostas comerciais geradas para {paciente.nome}
+                    </CardDescription>
+                  </div>
+                  <Button
+                    asChild
+                    size="sm"
+                    className="h-8 text-xs bg-[#0E7490] hover:bg-[#155E75] text-white"
+                  >
+                    <Link to={`/orcamentos?paciente_id=${paciente.id}`}>
+                      <Plus className="w-3.5 h-3.5 mr-1" />
+                      Gerar Orçamento
+                    </Link>
+                  </Button>
+                </CardHeader>
+                <CardContent className="text-xs text-slate-600">
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 flex items-center justify-between">
+                    <div>
+                      Consulte e aprove propostas comerciais deste paciente diretamente na central
+                      de orçamentos.
+                    </div>
+                    <Button asChild variant="outline" size="sm" className="text-xs">
+                      <Link to={`/orcamentos?paciente_id=${paciente.id}`}>Abrir Central</Link>
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </ModuloGate>
+          </TabsContent>
+        )}
+
+        {/* 4. Histórico Financeiro (BL-009) */}
         {hasModule('financeiro') && (
           <TabsContent value="financeiro" className="space-y-4">
             <ModuloGate modulo="financeiro">
               <Card className="border-slate-200">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-semibold">
-                    Títulos a Receber do Paciente
-                  </CardTitle>
-                  <CardDescription className="text-xs">
-                    Lançamentos gerados a partir de orçamentos e procedimentos
-                  </CardDescription>
+                <CardHeader className="pb-3 flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle className="text-sm font-semibold">
+                      Títulos a Receber do Paciente (BL-009)
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      Lançamentos gerados a partir de orçamentos aprovados e atendimentos
+                    </CardDescription>
+                  </div>
+                  <Button asChild variant="outline" size="sm" className="text-xs h-8">
+                    <Link to="/financeiro">Ver Central Financeira</Link>
+                  </Button>
                 </CardHeader>
                 <CardContent className="p-0">
                   {financeiro.length === 0 ? (
@@ -945,7 +1000,7 @@ export default function PacienteDetalhes() {
                           <tr key={f.id} className="hover:bg-slate-50">
                             <td className="py-2.5 px-4 font-medium">{f.descricao}</td>
                             <td className="py-2.5 px-4">{f.vencimento}</td>
-                            <td className="py-2.5 px-4 font-mono">
+                            <td className="py-2.5 px-4 font-mono font-semibold">
                               {new Intl.NumberFormat('pt-BR', {
                                 style: 'currency',
                                 currency: 'BRL',
@@ -954,10 +1009,10 @@ export default function PacienteDetalhes() {
                             <td className="py-2.5 px-4">
                               <Badge
                                 variant="outline"
-                                className={`text-[10px] capitalize ${
+                                className={`text-[10px] capitalize font-medium ${
                                   f.status === 'pago'
-                                    ? 'bg-emerald-50 text-emerald-700'
-                                    : 'bg-amber-50 text-amber-700'
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                    : 'bg-amber-50 text-amber-700 border-amber-200'
                                 }`}
                               >
                                 {f.status}

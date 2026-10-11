@@ -7,7 +7,7 @@ onRecordViewRequest(
   (e) => {
     try {
       const authRecord = e.auth
-      if (authRecord) {
+      if (authRecord && e.record) {
         const collectionName = e.record.collection().name
         // Monitorar coleções sensíveis clínicas: odontogramas_snapshots, evolucoes_clinicas, exames_anexos, anamneses
         if (
@@ -15,27 +15,34 @@ onRecordViewRequest(
             collectionName,
           )
         ) {
-          const auditoriaCollection = $app.findCollectionByNameOrId('auditoria_acesso')
-          const log = new Record(auditoriaCollection)
+          try {
+            const auditoriaCollection = $app.findCollectionByNameOrId('auditoria_acesso')
+            const log = new Record(auditoriaCollection)
 
-          log.set('tenant_id', authRecord.get('tenant_id') || e.record.get('tenant_id') || '')
-          log.set('user_id', authRecord.id)
-          log.set('user_email', authRecord.get('email') || '')
-          log.set('perfil', authRecord.get('perfil') || 'owner')
-          log.set('target_patient_id', e.record.get('paciente_id') || '')
-          log.set('acao', 'visualizou_prontuario')
-          log.set(
-            'detalhes',
-            'Acesso ao prontuário clínico na coleção: ' +
-              collectionName +
-              ' (ID: ' +
-              e.record.id +
-              ')',
-          )
-          log.set('ip', '127.0.0.1')
-          log.set('timestamp', new Date().toISOString())
+            log.set(
+              'tenant_id',
+              authRecord.getString('tenant_id') || e.record.getString('tenant_id') || '',
+            )
+            log.set('user_id', authRecord.id)
+            log.set('user_email', authRecord.getString('email') || '')
+            log.set('perfil', authRecord.getString('perfil') || 'owner')
+            log.set('target_patient_id', e.record.getString('paciente_id') || '')
+            log.set('acao', 'visualizou_prontuario')
+            log.set(
+              'detalhes',
+              'Acesso ao prontuário clínico na coleção: ' +
+                collectionName +
+                ' (ID: ' +
+                e.record.id +
+                ')',
+            )
+            log.set('ip', '127.0.0.1')
+            log.set('timestamp', new Date().toISOString())
 
-          $app.save(log)
+            $app.save(log)
+          } catch (saveErr) {
+            console.error('Falha ao salvar auditoria de acesso:', saveErr)
+          }
         }
       }
     } catch (err) {

@@ -316,31 +316,44 @@ export interface OrçamentoItem {
   dente?: string
   face?: string
   quantidade?: number
+  valor_unitario?: number
+  valor_total?: number
   valor: number
 }
 
 export interface OrcamentoRecord {
   id: string
   tenant_id: string
+  unidade_id?: string
   paciente_id: string
+  profissional_id?: string
   plano_id?: string
+  numero_orcamento?: string
   valor_bruto: number
   desconto_percentual?: number
+  desconto_valor?: number
   valor_liquido: number
   parcelas: number
-  status: 'rascunho' | 'negociacao' | 'aprovado' | 'recusado' | 'vencido'
+  status: 'rascunho' | 'enviado' | 'negociacao' | 'aprovado' | 'rejeitado' | 'recusado' | 'vencido'
   itens: OrçamentoItem[]
   validade?: string
+  observacoes?: string
+  motivo_rejeicao?: string
+  data_aprovacao?: string
+  aprovado_por?: string
   assinatura?: {
     rubrica?: string
     data_hora?: string
     ip?: string
+    documento_identidade?: string
     valido?: boolean
+    assinado?: boolean
   }
   created?: string
   updated?: string
   expand?: {
     paciente_id?: PacienteRecord
+    profissional_id?: ProfissionalRecord
   }
 }
 
@@ -353,20 +366,34 @@ export interface ModalidadePagamento {
 export interface LancamentoFinanceiroRecord {
   id: string
   tenant_id: string
+  unidade_id?: string
   paciente_id?: string
   orcamento_id?: string
+  profissional_id?: string
   descricao: string
   tipo: 'receber' | 'pagar'
+  categoria?: 'tratamento' | 'consulta' | 'procedimento' | 'ortodontia' | 'protese' | 'outro'
+  numero_parcela?: number
+  total_parcelas?: number
   valor: number
+  valor_desconto?: number
+  valor_juros_multa?: number
+  valor_liquido?: number
   vencimento: string
   status: 'aberto' | 'pago' | 'parcial' | 'vencido' | 'cancelado'
   modalidades?: ModalidadePagamento[]
+  forma_pagamento_principal?: string
   data_pagamento?: string
   valor_pago?: number
+  comprovante_transacao?: string
+  observacoes?: string
+  responsavel_baixa_email?: string
   created?: string
   updated?: string
   expand?: {
     paciente_id?: PacienteRecord
+    profissional_id?: ProfissionalRecord
+    orcamento_id?: OrcamentoRecord
   }
 }
 

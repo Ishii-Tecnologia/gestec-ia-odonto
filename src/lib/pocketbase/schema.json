@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-10T21:14:54.819Z",
+  "generatedAt": "2026-10-11T20:51:02.792Z",
   "collections": [
     {
       "name": "users",
@@ -301,7 +301,61 @@
         "update": "@request.auth.id != ''",
         "delete": "@request.auth.id != ''"
       },
-      "fields": [],
+      "fields": [
+        {
+          "name": "tenant_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "codigo",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "descricao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "duracao_minutos",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "valor",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "categoria",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": [
+            "diagnostico",
+            "prevencao",
+            "restauradora",
+            "endodontia",
+            "periodontia",
+            "cirurgia",
+            "ortodontia",
+            "protese",
+            "estetica"
+          ]
+        }
+      ],
       "indexes": []
     },
     {
@@ -752,7 +806,123 @@
         "update": "@request.auth.id != ''",
         "delete": "@request.auth.id != ''"
       },
-      "fields": [],
+      "fields": [
+        {
+          "name": "tenant_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "unidade_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "paciente_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "profissional_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "plano_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "numero_orcamento",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "valor_bruto",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "desconto_percentual",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "desconto_valor",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "valor_liquido",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "parcelas",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["rascunho", "enviado", "negociacao", "aprovado", "rejeitado", "vencido"]
+        },
+        {
+          "name": "validade",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "itens",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "observacoes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "motivo_rejeicao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "assinatura",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_aprovacao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "aprovado_por",
+          "type": "text",
+          "required": false,
+          "system": false
+        }
+      ],
       "indexes": []
     },
     {
@@ -765,7 +935,156 @@
         "update": "@request.auth.id != ''",
         "delete": "@request.auth.id != ''"
       },
-      "fields": [],
+      "fields": [
+        {
+          "name": "tenant_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "unidade_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "paciente_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "orcamento_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "profissional_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "descricao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tipo",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["receber", "pagar"]
+        },
+        {
+          "name": "categoria",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": [
+            "tratamento",
+            "consulta",
+            "procedimento",
+            "ortodontia",
+            "protese",
+            "outro"
+          ]
+        },
+        {
+          "name": "numero_parcela",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "total_parcelas",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "valor",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "valor_desconto",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "valor_juros_multa",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "valor_liquido",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "vencimento",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["aberto", "pago", "parcial", "vencido", "cancelado"]
+        },
+        {
+          "name": "modalidades",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "forma_pagamento_principal",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_pagamento",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "valor_pago",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "comprovante_transacao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "observacoes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "responsavel_baixa_email",
+          "type": "text",
+          "required": false,
+          "system": false
+        }
+      ],
       "indexes": []
     },
     {
