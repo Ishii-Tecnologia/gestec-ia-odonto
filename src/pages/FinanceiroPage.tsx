@@ -54,6 +54,7 @@ import {
   Wallet,
   Receipt,
   FileCheck2,
+  Download,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
@@ -348,6 +349,80 @@ export default function FinanceiroPage() {
 
   const totalGeralPrevisto = totalRecebido + totalAberto
 
+  // BL-023: Exportação Contábil e Extratos CSV
+  const handleExportarExtratoCSV = () => {
+    if (!temPermissaoPlena) {
+      toast({
+        title: 'Acesso Restrito',
+        description: 'Seu perfil não possui permissão para exportar dados contábeis.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    if (titulosFiltrados.length === 0) {
+      toast({ title: 'Nenhum lançamento para exportar', variant: 'destructive' })
+      return
+    }
+
+    // Layout de colunas: data, descrição, valor, status, forma de pagamento
+    const headers = [
+      'Data Vencimento',
+      'Descrição',
+      'Paciente',
+      'Valor Original',
+      'Valor Pago',
+      'Status',
+      'Forma de Pagamento',
+      'Data Pagamento',
+      'Comprovante / Ref',
+      'Unidade',
+    ]
+
+    const rows = titulosFiltrados.map((t) => {
+      const pacNome = t.expand?.paciente_id?.nome || 'Avulso'
+      const unidadeNome = unidades.find((u) => u.id === t.unidade_id)?.nome || 'Principal'
+      return [
+        t.vencimento || '',
+        `"${(t.descricao || '').replace(/"/g, '""')}"`,
+        `"${pacNome.replace(/"/g, '""')}"`,
+        t.valor.toFixed(2),
+        (t.valor_pago || 0).toFixed(2),
+        t.status,
+        t.forma_pagamento_principal || '',
+        t.data_pagamento ? t.data_pagamento.slice(0, 10) : '',
+        `"${(t.comprovante_transacao || '').replace(/"/g, '""')}"`,
+        `"${unidadeNome.replace(/"/g, '""')}"`,
+      ]
+    })
+
+    const csvContent =
+      'data:text/csv;charset=utf-8,\uFEFF' +
+      [headers.join(','), ...rows.map((r) => r.join(','))].join('\n')
+
+    const hojeStr = new Date().toISOString().slice(0, 10)
+    const encodedUri = encodeURI(csvContent)
+    const link = document.createElement('a')
+    link.setAttribute('href', encodedUri)
+    link.setAttribute('download', `gestec_extrato_contabil_${hojeStr}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+
+    registrarAuditoria({
+      tenantId,
+      userEmail: user?.email,
+      perfil,
+      acao: 'exportou_extrato_contabil_csv',
+      detalhes: `Exportação de extrato financeiro contábil em CSV (${titulosFiltrados.length} lançamentos)`,
+    })
+
+    toast({
+      title: 'Extrato Contábil Exportado!',
+      description: `Arquivo CSV gerado com ${titulosFiltrados.length} lançamentos.`,
+    })
+  }
+
   // Faturamento por profissional
   const faturamentoPorProfissional = useMemo(() => {
     const mapa: Record<string, { nome: string; pago: number; aberto: number }> = {}
@@ -429,6 +504,17 @@ export default function FinanceiroPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportarExtratoCSV}
+              className="text-xs h-9 flex items-center gap-1.5 border-emerald-300 text-emerald-800 hover:bg-emerald-50"
+              title="Exportar extrato contábil em CSV das contas a receber filtradas"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Exportar Extrato</span>
+            </Button>
+
             <Button
               variant="outline"
               size="sm"

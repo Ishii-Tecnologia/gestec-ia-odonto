@@ -20,6 +20,7 @@ import OrcamentosPage from './pages/OrcamentosPage'
 import FinanceiroPage from './pages/FinanceiroPage'
 import RelatoriosPage from './pages/RelatoriosPage'
 import ComunicacaoPage from './pages/ComunicacaoPage'
+import { DocumentosPage } from './pages/DocumentosPage'
 import AgendamentoPublico from './pages/AgendamentoPublico'
 import OwnerPainel from './pages/OwnerPainel'
 import SuperAdminPainel from './pages/SuperAdminPainel'
@@ -61,6 +62,14 @@ const App = () => (
             />
             <Route path="/orcamentos" element={<OrcamentosPage />} />
             <Route path="/financeiro" element={<FinanceiroPage />} />
+            <Route
+              path="/documentos"
+              element={
+                <RequireProfile allowed={['dentista', 'owner', 'superadmin', 'asb', 'recepcao']}>
+                  <DocumentosPage />
+                </RequireProfile>
+              }
+            />
             <Route path="/comunicacao" element={<ComunicacaoPage />} />
             <Route path="/relatorios" element={<RelatoriosPage />} />
             <Route path="/configuracoes" element={<OwnerPainel />} />

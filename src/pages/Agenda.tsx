@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import {
   Dialog,
@@ -53,6 +54,8 @@ import {
   FileEdit,
   ArrowRight,
   AlertTriangle,
+  Send,
+  UserPlus,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { ModuloGate } from '@/components/ModuloGate'
@@ -149,6 +152,32 @@ export default function Agenda() {
   const [motivoTexto, setMotivoTexto] = useState('')
   const [salvandoMotivo, setSalvandoMotivo] = useState(false)
 
+  // BL-013: Modal e Estado da Lista de Espera Inteligente
+  const [modalFilaAberto, setModalFilaAberto] = useState(false)
+  const [filaPacienteId, setFilaPacienteId] = useState('')
+  const [filaProfissionalId, setFilaProfissionalId] = useState('')
+  const [filaProcedimento, setFilaProcedimento] = useState('')
+  const [filaPeriodo, setFilaPeriodo] = useState<'manha' | 'tarde' | 'noite' | 'qualquer'>(
+    'qualquer',
+  )
+  const [filaDiasSemana, setFilaDiasSemana] = useState<string[]>([])
+  const [filaDataDesejada, setFilaDataDesejada] = useState('')
+  const [filaPrioridade, setFilaPrioridade] = useState<number>(3)
+  const [filaContatoTelefone, setFilaContatoTelefone] = useState('')
+  const [filaObservacoes, setFilaObservacoes] = useState('')
+  const [salvandoFila, setSalvandoFila] = useState(false)
+
+  // BL-013: Modal de Ofertar Horário / Conversão em Agendamento
+  const [modalOfertarAberto, setModalOfertarAberto] = useState(false)
+  const [itemFilaOfertar, setItemFilaOfertar] = useState<FilaEsperaRecord | null>(null)
+  const [ofertaData, setOfertaData] = useState<string>(new Date().toISOString().slice(0, 10))
+  const [ofertaHora, setOfertaHora] = useState<string>('10:00')
+  const [ofertaDuracao, setOfertaDuracao] = useState<number>(30)
+  const [ofertaProfId, setOfertaProfId] = useState<string>('')
+  const [ofertaSalaId, setOfertaSalaId] = useState<string>('')
+  const [ofertaConflito, setOfertaConflito] = useState<string | null>(null)
+  const [processandoOferta, setProcessandoOferta] = useState(false)
+
   // Carregar dados principais da agenda
   const carregarDados = async () => {
     setLoading(true)
@@ -178,6 +207,13 @@ export default function Agenda() {
         salasFilter += ` && unidade_id = '${selectedUnidadeId}'`
       }
 
+      let filaFilter = tenantId ? `tenant_id = '${tenantId}'` : ''
+      if (selectedUnidadeId && selectedUnidadeId !== 'todas') {
+        filaFilter = filaFilter
+          ? `${filaFilter} && (unidade_id = '${selectedUnidadeId}' || unidade_id = '')`
+          : `(unidade_id = '${selectedUnidadeId}' || unidade_id = '')`
+      }
+
       const [agRes, profRes, pacRes, procRes, filaRes, salasRes] = await Promise.all([
         pb.collection('agendamentos').getList<AgendamentoRecord>(1, 300, {
           filter: agFilter || undefined,
@@ -194,10 +230,10 @@ export default function Agenda() {
         pb.collection('procedimentos').getList<ProcedimentoRecord>(1, 50, {
           sort: 'nome',
         }),
-        pb.collection('filas_espera').getList<FilaEsperaRecord>(1, 20, {
-          filter: "status = 'aguardando'",
-          sort: 'prioridade',
-          expand: 'paciente_id',
+        pb.collection('filas_espera').getList<FilaEsperaRecord>(1, 50, {
+          filter: filaFilter || undefined,
+          sort: '-prioridade,created',
+          expand: 'paciente_id,profissional_id',
         }),
         pb.collection('salas').getList<SalaRecord>(1, 50, {
           filter: salasFilter,
@@ -350,6 +386,219 @@ export default function Agenda() {
     agendamentoRemarcando,
     agendamentos,
   ])
+
+  // Validação em tempo real para oferta de vaga à fila de espera
+  useEffect(() => {
+    if (!modalOfertarAberto || !itemFilaOfertar) return
+    const [h, m] = ofertaHora.split(':').map(Number)
+    const endMinutes = h * 60 + m + ofertaDuracao
+    const endH = String(Math.floor(endMinutes / 60)).padStart(2, '0')
+    const endM = String(endMinutes % 60).padStart(2, '0')
+    const horaFim = `${endH}:${endM}`
+
+    const check = verificarConflito(ofertaData, ofertaHora, horaFim, ofertaProfId, ofertaSalaId)
+    if (check.conflito) {
+      setOfertaConflito(check.motivo || 'Conflito detectado para este horário.')
+    } else {
+      setOfertaConflito(null)
+    }
+  }, [
+    ofertaData,
+    ofertaHora,
+    ofertaDuracao,
+    ofertaProfId,
+    ofertaSalaId,
+    modalOfertarAberto,
+    itemFilaOfertar,
+    agendamentos,
+  ])
+
+  // BL-013: Ações da Lista de Espera Inteligente
+  const handleCadastrarFilaEspera = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!filaPacienteId) {
+      toast({ title: 'Selecione o paciente', variant: 'destructive' })
+      return
+    }
+
+    setSalvandoFila(true)
+    try {
+      const targetUnidadeId =
+        selectedUnidadeId && selectedUnidadeId !== 'todas'
+          ? selectedUnidadeId
+          : unidades[0]?.id || ''
+
+      const pacObj = pacientes.find((p) => p.id === filaPacienteId)
+
+      await pb.collection('filas_espera').create<FilaEsperaRecord>({
+        tenant_id: tenantId,
+        unidade_id: targetUnidadeId,
+        paciente_id: filaPacienteId,
+        profissional_id: filaProfissionalId || undefined,
+        procedimento: filaProcedimento || 'Consulta / Avaliação',
+        periodo_preferencia: filaPeriodo,
+        dias_semana: filaDiasSemana.length > 0 ? filaDiasSemana : undefined,
+        data_desejada: filaDataDesejada || undefined,
+        prioridade: Number(filaPrioridade) || 3,
+        status: 'aguardando',
+        contato_telefone: filaContatoTelefone || pacObj?.telefone || '',
+        observacoes: filaObservacoes.trim() || undefined,
+      })
+
+      await registrarAuditoria({
+        tenantId,
+        userEmail: user?.email,
+        perfil,
+        targetPatientId: filaPacienteId,
+        acao: 'incluiu_fila_espera',
+        detalhes: `Inclusão na fila de espera (Prioridade ${filaPrioridade}, Período ${filaPeriodo}, Procedimento: ${filaProcedimento || 'Geral'})`,
+      })
+
+      toast({
+        title: 'Paciente adicionado à Lista de Espera!',
+        description: 'Prioridade e preferências registradas com sucesso.',
+      })
+
+      setModalFilaAberto(false)
+      // Limpar form
+      setFilaPacienteId('')
+      setFilaProfissionalId('')
+      setFilaProcedimento('')
+      setFilaPeriodo('qualquer')
+      setFilaDiasSemana([])
+      setFilaDataDesejada('')
+      setFilaPrioridade(3)
+      setFilaContatoTelefone('')
+      setFilaObservacoes('')
+      carregarDados()
+    } catch (err: any) {
+      toast({ title: 'Erro ao incluir na fila', description: err.message, variant: 'destructive' })
+    } finally {
+      setSalvandoFila(false)
+    }
+  }
+
+  const handleAbrirOfertarHorario = (item: FilaEsperaRecord) => {
+    setItemFilaOfertar(item)
+    setOfertaData(item.data_desejada || selectedDate)
+    setOfertaHora('10:00')
+    setOfertaDuracao(30)
+    setOfertaProfId(item.profissional_id || profissionais[0]?.id || '')
+    setOfertaSalaId(salasDisponiveis[0]?.id || '')
+    setOfertaConflito(null)
+    setModalOfertarAberto(true)
+  }
+
+  const handleConfirmarOfertaEConverter = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!itemFilaOfertar) return
+
+    if (ofertaConflito) {
+      toast({
+        title: 'Conflito de Horário',
+        description: ofertaConflito,
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setProcessandoOferta(true)
+    try {
+      const [h, m] = ofertaHora.split(':').map(Number)
+      const endMinutes = h * 60 + m + ofertaDuracao
+      const endH = String(Math.floor(endMinutes / 60)).padStart(2, '0')
+      const endM = String(endMinutes % 60).padStart(2, '0')
+      const horaFim = `${endH}:${endM}`
+
+      const dataInicioStr = `${ofertaData}T${ofertaHora}:00`
+      const dataFimStr = `${ofertaData}T${horaFim}:00`
+
+      const salaObj = salasDisponiveis.find((s) => s.id === ofertaSalaId)
+      const nomeSalaFinal = salaObj ? salaObj.nome : 'Consultório 1'
+
+      const targetUnidadeId =
+        itemFilaOfertar.unidade_id ||
+        (selectedUnidadeId !== 'todas' ? selectedUnidadeId : unidades[0]?.id || '')
+
+      // 1. Criar agendamento real confirmado/pendente
+      await pb.collection('agendamentos').create<AgendamentoRecord>({
+        tenant_id: tenantId,
+        unidade_id: targetUnidadeId,
+        sala_id: ofertaSalaId || undefined,
+        sala: nomeSalaFinal,
+        paciente_id: itemFilaOfertar.paciente_id,
+        profissional_id: ofertaProfId,
+        procedimento: itemFilaOfertar.procedimento || 'Consulta / Procedimento',
+        tipo_consulta: 'procedimento',
+        duracao_minutos: ofertaDuracao,
+        data_inicio: dataInicioStr,
+        data_fim: dataFimStr,
+        status: 'confirmado',
+        confirmacao_status: 'confirmado',
+        confirmado_em: new Date().toISOString(),
+        origem: 'recepcao',
+      })
+
+      // 2. Atualizar a fila de espera para "atendido"
+      await pb.collection('filas_espera').update(itemFilaOfertar.id, {
+        status: 'atendido',
+        oferta_enviada_em: new Date().toISOString(),
+      })
+
+      await registrarAuditoria({
+        tenantId,
+        userEmail: user?.email,
+        perfil,
+        targetPatientId: itemFilaOfertar.paciente_id,
+        acao: 'converteu_fila_em_agendamento',
+        detalhes: `Vaga ofertada e convertida em agendamento para ${ofertaData} às ${ofertaHora} (Fila ID: ${itemFilaOfertar.id}). Status marcado como atendido.`,
+      })
+
+      toast({
+        title: 'Horário Ofertado e Agendamento Criado!',
+        description: `Paciente ${itemFilaOfertar.expand?.paciente_id?.nome} agendado para ${ofertaData} às ${ofertaHora} e fila atualizada para atendido.`,
+      })
+
+      setModalOfertarAberto(false)
+      setItemFilaOfertar(null)
+      carregarDados()
+    } catch (err: any) {
+      toast({ title: 'Erro ao converter vaga', description: err.message, variant: 'destructive' })
+    } finally {
+      setProcessandoOferta(false)
+    }
+  }
+
+  const handleCancelarItemFila = async (item: FilaEsperaRecord) => {
+    try {
+      await pb.collection('filas_espera').update(item.id, {
+        status: 'cancelado',
+      })
+      toast({
+        title: 'Fila atualizada',
+        description: 'Paciente marcado como cancelado na lista de espera.',
+      })
+      carregarDados()
+    } catch (err: any) {
+      toast({ title: 'Erro ao atualizar fila', description: err.message, variant: 'destructive' })
+    }
+  }
+
+  const handleMarcarOfertado = async (item: FilaEsperaRecord) => {
+    try {
+      await pb.collection('filas_espera').update(item.id, {
+        status: 'ofertado',
+        oferta_enviada_em: new Date().toISOString(),
+      })
+      toast({
+        title: 'Status atualizado para Ofertado',
+        description: 'Aguardando confirmação do paciente.',
+      })
+      carregarDados()
+    } catch (err: any) {
+      toast({ title: 'Erro ao atualizar fila', description: err.message, variant: 'destructive' })
+    }
+  }
 
   // Submissão de Novo Agendamento (BL-004)
   const handleCriarAgendamento = async (e: React.FormEvent) => {
@@ -1147,54 +1396,137 @@ export default function Agenda() {
           <div className="space-y-6">
             {/* Lista de Espera Inteligente (BL-013) */}
             <Card className="border-slate-200 shadow-sm">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <ListOrdered className="w-4 h-4 text-[#0E7490]" />
-                  Lista de Espera (RF-006)
-                </CardTitle>
-                <CardDescription className="text-xs">
-                  Pacientes aguardando cancelamento ou encaixe
-                </CardDescription>
+              <CardHeader className="pb-2.5 flex flex-row items-start justify-between space-y-0">
+                <div>
+                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                    <ListOrdered className="w-4 h-4 text-[#0E7490]" />
+                    Lista de Espera Inteligente
+                  </CardTitle>
+                  <CardDescription className="text-[11px] text-slate-500 mt-0.5">
+                    Prioridade 1-5, turno e encaixe automático
+                  </CardDescription>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => setModalFilaAberto(true)}
+                  className="h-7 text-[11px] px-2 bg-[#0E7490] hover:bg-[#155E75] text-white gap-1 shrink-0"
+                >
+                  <Plus className="w-3 h-3" />
+                  Incluir
+                </Button>
               </CardHeader>
-              <CardContent className="space-y-2.5 p-3">
+              <CardContent className="space-y-2 p-3 pt-0">
                 {filaEspera.length === 0 ? (
                   <div className="text-center py-6 text-slate-400 text-xs">
                     Nenhum paciente na fila de espera no momento.
                   </div>
                 ) : (
-                  filaEspera.map((f, idx) => (
-                    <div
-                      key={f.id}
-                      className="p-2.5 rounded-lg border border-slate-100 bg-slate-50 text-xs space-y-1"
-                    >
-                      <div className="flex items-center justify-between font-semibold">
-                        <span>
-                          #{idx + 1} {f.expand?.paciente_id?.nome}
-                        </span>
-                        <Badge variant="outline" className="text-[10px] bg-cyan-50 text-cyan-800">
-                          Prioridade {f.prioridade || 1}
-                        </Badge>
-                      </div>
-                      <div className="text-[11px] text-slate-500">
-                        Preferência: {f.data_desejada || 'O quanto antes'}
-                      </div>
-                      <div className="pt-1 flex justify-end">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-6 text-[10px] text-[#0E7490]"
-                          onClick={() => {
-                            toast({
-                              title: 'Vaga ofertada',
-                              description: `Convite enviado para ${f.expand?.paciente_id?.nome}.`,
-                            })
-                          }}
+                  <div className="space-y-2 max-h-[420px] overflow-y-auto pr-0.5">
+                    {filaEspera.map((f, idx) => {
+                      const pacNome = f.expand?.paciente_id?.nome || 'Paciente'
+                      const statusBadge =
+                        f.status === 'aguardando'
+                          ? 'bg-amber-50 text-amber-800 border-amber-300'
+                          : f.status === 'ofertado'
+                            ? 'bg-cyan-50 text-cyan-800 border-cyan-300'
+                            : f.status === 'atendido'
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                              : 'bg-slate-100 text-slate-600 border-slate-300'
+
+                      return (
+                        <div
+                          key={f.id}
+                          className="p-2.5 rounded-lg border border-slate-200 bg-slate-50/70 text-xs space-y-1.5 hover:bg-slate-50 transition-colors"
                         >
-                          Ofertar Horário
-                        </Button>
-                      </div>
-                    </div>
-                  ))
+                          <div className="flex items-center justify-between font-semibold">
+                            <span className="truncate max-w-[140px] text-slate-900">
+                              #{idx + 1} {pacNome}
+                            </span>
+                            <div className="flex items-center gap-1">
+                              <Badge
+                                variant="outline"
+                                className="text-[9px] px-1.5 py-0 bg-[#0E7490]/10 text-[#0E7490] border-cyan-300 font-bold"
+                              >
+                                P{f.prioridade || 3}
+                              </Badge>
+                              <Badge
+                                variant="outline"
+                                className={`text-[9px] px-1.5 py-0 capitalize ${statusBadge}`}
+                              >
+                                {f.status}
+                              </Badge>
+                            </div>
+                          </div>
+
+                          <div className="text-[11px] text-slate-600 space-y-0.5">
+                            <div>
+                              <strong className="text-slate-700">Procedimento:</strong>{' '}
+                              {f.procedimento || 'Avaliação'}
+                            </div>
+                            <div className="flex items-center gap-2 flex-wrap text-[10px] text-slate-500">
+                              <span>
+                                Turno:{' '}
+                                {f.periodo_preferencia === 'manha'
+                                  ? 'Manhã'
+                                  : f.periodo_preferencia === 'tarde'
+                                    ? 'Tarde'
+                                    : f.periodo_preferencia === 'noite'
+                                      ? 'Noite'
+                                      : 'Qualquer'}
+                              </span>
+                              {f.dias_semana && f.dias_semana.length > 0 && (
+                                <span>Dias: {f.dias_semana.join(', ')}</span>
+                              )}
+                              {f.contato_telefone && (
+                                <span className="font-mono text-slate-600">
+                                  {f.contato_telefone}
+                                </span>
+                              )}
+                            </div>
+                            {f.observacoes && (
+                              <div className="text-[10px] text-slate-500 italic bg-white p-1 rounded border border-slate-100">
+                                "{f.observacoes}"
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="pt-1 border-t border-slate-200/60 flex items-center justify-between gap-1 flex-wrap">
+                            {f.status === 'aguardando' && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 text-[10px] text-slate-500 hover:text-amber-700 px-1.5"
+                                onClick={() => handleMarcarOfertado(f)}
+                                title="Marcar que vaga foi ofertada externamente"
+                              >
+                                Marcar Ofertado
+                              </Button>
+                            )}
+                            {f.status !== 'cancelado' && f.status !== 'atendido' && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 text-[10px] text-rose-600 hover:bg-rose-50 px-1.5"
+                                onClick={() => handleCancelarItemFila(f)}
+                              >
+                                Cancelar
+                              </Button>
+                            )}
+                            {f.status !== 'atendido' && (
+                              <Button
+                                size="sm"
+                                className="h-6 text-[10px] px-2 bg-[#0E7490] hover:bg-[#155E75] text-white ml-auto gap-1"
+                                onClick={() => handleAbrirOfertarHorario(f)}
+                              >
+                                <Send className="w-2.5 h-2.5" />
+                                <span>Ofertar Slot</span>
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -1569,6 +1901,290 @@ export default function Agenda() {
                 </Button>
               </DialogFooter>
             </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* Modal BL-013: Incluir Paciente na Fila de Espera */}
+        <Dialog open={modalFilaAberto} onOpenChange={setModalFilaAberto}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-base font-semibold flex items-center gap-2">
+                <UserPlus className="w-4 h-4 text-[#0E7490]" />
+                Incluir na Lista de Espera Inteligente
+              </DialogTitle>
+              <DialogDescription className="text-xs">
+                Registre as preferências e nível de prioridade do paciente para encaixes de
+                cancelamento.
+              </DialogDescription>
+            </DialogHeader>
+
+            <form onSubmit={handleCadastrarFilaEspera} className="space-y-3 py-2 text-xs">
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">Paciente *</Label>
+                <Select
+                  value={filaPacienteId}
+                  onValueChange={(val) => {
+                    setFilaPacienteId(val)
+                    const p = pacientes.find((x) => x.id === val)
+                    if (p?.telefone) setFilaContatoTelefone(p.telefone)
+                  }}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Selecione o paciente..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {pacientes.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.nome} {p.cpf ? `(${p.cpf})` : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold">Dentista Preferencial</Label>
+                  <Select value={filaProfissionalId} onValueChange={setFilaProfissionalId}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="Qualquer cirurgião" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">Qualquer dentista disponível</SelectItem>
+                      {profissionais.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.nome}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold">Prioridade (1 a 5) *</Label>
+                  <Select
+                    value={String(filaPrioridade)}
+                    onValueChange={(val) => setFilaPrioridade(Number(val))}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="5">5 - Máxima / Urgência com dor</SelectItem>
+                      <SelectItem value="4">4 - Alta / Tratamento em andamento</SelectItem>
+                      <SelectItem value="3">3 - Média / Padrão</SelectItem>
+                      <SelectItem value="2">2 - Baixa / Sem pressa</SelectItem>
+                      <SelectItem value="1">1 - Mínima / Quando sobrar vaga</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold">Procedimento</Label>
+                  <Input
+                    placeholder="Ex: Avaliação, Restauração..."
+                    value={filaProcedimento}
+                    onChange={(e) => setFilaProcedimento(e.target.value)}
+                    className="h-8 text-xs"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold">Período de Preferência</Label>
+                  <Select value={filaPeriodo} onValueChange={(val: any) => setFilaPeriodo(val)}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="qualquer">Qualquer Turno</SelectItem>
+                      <SelectItem value="manha">Manhã (08h às 12h)</SelectItem>
+                      <SelectItem value="tarde">Tarde (12h às 18h)</SelectItem>
+                      <SelectItem value="noite">Noite / Fim de tarde</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">Telefone de Contato para Aviso</Label>
+                <Input
+                  placeholder="(11) 99999-9999"
+                  value={filaContatoTelefone}
+                  onChange={(e) => setFilaContatoTelefone(e.target.value)}
+                  className="h-8 text-xs font-mono"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">Observações / Restrições de Agenda</Label>
+                <Textarea
+                  placeholder="Ex: Disponível apenas nas terças e quintas; avisa com 1h de antecedência..."
+                  value={filaObservacoes}
+                  onChange={(e) => setFilaObservacoes(e.target.value)}
+                  className="text-xs resize-none h-16"
+                />
+              </div>
+
+              <DialogFooter className="pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setModalFilaAberto(false)}
+                  className="h-8 text-xs"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={salvandoFila}
+                  size="sm"
+                  className="h-8 text-xs bg-[#0E7490] hover:bg-[#155E75] text-white"
+                >
+                  {salvandoFila ? 'Salvando...' : 'Adicionar à Fila'}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* Modal BL-013: Ofertar Horário Livre e Converter em Agendamento */}
+        <Dialog open={modalOfertarAberto} onOpenChange={setModalOfertarAberto}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-base font-semibold flex items-center gap-2">
+                <Send className="w-4 h-4 text-[#0E7490]" />
+                Ofertar Horário e Confirmar Encaixe
+              </DialogTitle>
+              <DialogDescription className="text-xs">
+                Selecione o slot disponível na agenda. Ao confirmar, o agendamento real será criado
+                e a fila de espera será marcada como <strong>atendido</strong>.
+              </DialogDescription>
+            </DialogHeader>
+
+            {itemFilaOfertar && (
+              <form onSubmit={handleConfirmarOfertaEConverter} className="space-y-3 py-2 text-xs">
+                <div className="p-2.5 bg-slate-50 border rounded-lg text-slate-700 space-y-0.5">
+                  <div className="font-bold text-slate-900">
+                    Paciente: {itemFilaOfertar.expand?.paciente_id?.nome}
+                  </div>
+                  <div className="text-[11px] text-slate-600">
+                    Procedimento: {itemFilaOfertar.procedimento || 'Avaliação'} • Prioridade:{' '}
+                    {itemFilaOfertar.prioridade}
+                  </div>
+                  {itemFilaOfertar.observacoes && (
+                    <div className="text-[11px] text-slate-500 italic">
+                      Preferência: {itemFilaOfertar.observacoes}
+                    </div>
+                  )}
+                </div>
+
+                {ofertaConflito && (
+                  <div className="p-2.5 bg-red-50 border border-red-200 rounded-lg text-red-800 text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+                    <span>{ofertaConflito}</span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold">Data do Encaixe *</Label>
+                    <Input
+                      type="date"
+                      required
+                      value={ofertaData}
+                      onChange={(e) => setOfertaData(e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold">Horário de Início *</Label>
+                    <Input
+                      type="time"
+                      required
+                      value={ofertaHora}
+                      onChange={(e) => setOfertaHora(e.target.value)}
+                      className="h-8 text-xs font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold">Cirurgião-Dentista *</Label>
+                    <Select value={ofertaProfId} onValueChange={setOfertaProfId}>
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {profissionais.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.nome}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold">Cadeira / Sala *</Label>
+                    <Select value={ofertaSalaId} onValueChange={setOfertaSalaId}>
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {salasDisponiveis.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.nome}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold">Duração Prevista</Label>
+                  <Select
+                    value={String(ofertaDuracao)}
+                    onValueChange={(val) => setOfertaDuracao(Number(val))}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="15">15 minutos</SelectItem>
+                      <SelectItem value="30">30 minutos</SelectItem>
+                      <SelectItem value="45">45 minutos</SelectItem>
+                      <SelectItem value="60">1 hora</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <DialogFooter className="pt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setModalOfertarAberto(false)}
+                    className="h-8 text-xs"
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={processandoOferta || Boolean(ofertaConflito)}
+                    size="sm"
+                    className="h-8 text-xs bg-[#0E7490] hover:bg-[#155E75] text-white"
+                  >
+                    {processandoOferta ? 'Convertendo...' : 'Confirmar Encaixe na Agenda'}
+                  </Button>
+                </DialogFooter>
+              </form>
+            )}
           </DialogContent>
         </Dialog>
       </div>

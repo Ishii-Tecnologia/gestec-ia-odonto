@@ -7,6 +7,7 @@ import {
   AnamneseRecord,
   LancamentoFinanceiroRecord,
   ExameAnexoRecord,
+  VinculoFamiliarRecord,
 } from '@/types/gestec'
 import { registrarAuditoria } from '@/lib/pocketbase/auditoria'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -44,7 +45,24 @@ import {
   Save,
   FileSpreadsheet,
   Plus,
+  Eye,
+  Download,
+  Trash2,
+  UploadCloud,
+  FileUp,
+  ZoomIn,
+  HeartHandshake,
+  UserPlus,
 } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Textarea } from '@/components/ui/textarea'
 import { ModuloGate } from '@/components/ModuloGate'
 import { validarCPF, formatarCPF, formatarTelefone, calcularIdade } from '@/lib/validadores'
 
@@ -57,7 +75,36 @@ export default function PacienteDetalhes() {
   const [anamnese, setAnamnese] = useState<AnamneseRecord | null>(null)
   const [financeiro, setFinanceiro] = useState<LancamentoFinanceiroRecord[]>([])
   const [exames, setExames] = useState<ExameAnexoRecord[]>([])
+  const [vinculos, setVinculos] = useState<VinculoFamiliarRecord[]>([])
+  const [todosPacientes, setTodosPacientes] = useState<PacienteRecord[]>([])
   const [loading, setLoading] = useState(true)
+
+  // BL-015: Upload de Exames e Modal de Zoom
+  const [modalUploadExameAberto, setModalUploadExameAberto] = useState(false)
+  const [uploadArquivo, setUploadArquivo] = useState<File | null>(null)
+  const [uploadTipo, setUploadTipo] = useState<
+    'panoramica' | 'periapical' | 'tomografia' | 'foto_clinica' | 'documento' | 'laudo'
+  >('panoramica')
+  const [uploadTitulo, setUploadTitulo] = useState('')
+  const [uploadDenteRef, setUploadDenteRef] = useState('')
+  const [uploadTagsStr, setUploadTagsStr] = useState('')
+  const [uploadDescricao, setUploadDescricao] = useState('')
+  const [salvandoExame, setSalvandoExame] = useState(false)
+  const [modalZoomAberto, setModalZoomAberto] = useState(false)
+  const [exameZoom, setExameZoom] = useState<ExameAnexoRecord | null>(null)
+
+  // BL-020: Vínculos Familiares
+  const [modalVinculoAberto, setModalVinculoAberto] = useState(false)
+  const [vinculoRespId, setVinculoRespId] = useState('')
+  const [vinculoRespNome, setVinculoRespNome] = useState('')
+  const [vinculoRespCpf, setVinculoRespCpf] = useState('')
+  const [vinculoRespTel, setVinculoRespTel] = useState('')
+  const [vinculoParentesco, setVinculoParentesco] = useState<
+    'pai' | 'mae' | 'filho' | 'filha' | 'conjuge' | 'irmao' | 'irma' | 'avo' | 'tutor' | 'outro'
+  >('mae')
+  const [vinculoFinanceiro, setVinculoFinanceiro] = useState(true)
+  const [vinculoObs, setVinculoObs] = useState('')
+  const [salvandoVinculo, setSalvandoVinculo] = useState(false)
 
   // Modo de edição cadastral
   const [editando, setEditando] = useState(false)
@@ -118,14 +165,29 @@ export default function PacienteDetalhes() {
         }
 
         // 3. Exames anexados
-        const exRes = await pb.collection('exames_anexos').getList<ExameAnexoRecord>(1, 20, {
+        const exRes = await pb.collection('exames_anexos').getList<ExameAnexoRecord>(1, 50, {
           filter: `paciente_id = '${id}'`,
           sort: '-created',
         })
         setExames(exRes.items)
       }
 
-      // 4. Financeiro (se ativo)
+      // 4. Vínculos Familiares (BL-020)
+      const [vincRes, todosPacRes] = await Promise.all([
+        pb.collection('vinculos_familiares').getList<VinculoFamiliarRecord>(1, 50, {
+          filter: `paciente_id = '${id}' || responsavel_id = '${id}'`,
+          sort: '-created',
+          expand: 'paciente_id,responsavel_id',
+        }),
+        pb.collection('pacientes').getList<PacienteRecord>(1, 200, {
+          filter: tenantId ? `tenant_id = '${tenantId}' && id != '${id}'` : `id != '${id}'`,
+          sort: 'nome',
+        }),
+      ])
+      setVinculos(vincRes.items)
+      setTodosPacientes(todosPacRes.items)
+
+      // 5. Financeiro (se ativo)
       if (hasModule('financeiro')) {
         const fRes = await pb
           .collection('lancamentos_financeiros')
@@ -136,7 +198,7 @@ export default function PacienteDetalhes() {
         setFinanceiro(fRes.items)
       }
 
-      // 5. Auditoria append-only LGPD: todo acesso à ficha gera registro
+      // 6. Auditoria append-only LGPD: todo acesso à ficha gera registro
       await registrarAuditoria({
         tenantId,
         userEmail: user?.email,
@@ -235,6 +297,224 @@ export default function PacienteDetalhes() {
       })
     } finally {
       setSalvandoDados(false)
+    }
+  }
+
+  // BL-015: Manipulação de Exames & Radiografias
+  const handleUploadExame = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!id || !canAccessClinical()) {
+      toast({ title: 'Acesso restrito a perfis clínicos', variant: 'destructive' })
+      return
+    }
+
+    if (!uploadArquivo && !uploadTitulo.trim()) {
+      toast({ title: 'Selecione um arquivo ou informe um título', variant: 'destructive' })
+      return
+    }
+
+    setSalvandoExame(true)
+    try {
+      const formData = new FormData()
+      formData.append('tenant_id', tenantId || '')
+      formData.append('paciente_id', id)
+      formData.append('unidade_id', paciente?.unidade_id || '')
+      formData.append('tipo', uploadTipo)
+      formData.append('titulo', uploadTitulo.trim() || uploadArquivo?.name || 'Exame Anexo')
+      formData.append('descricao', uploadDescricao.trim() || 'Anexo registrado no prontuário')
+      if (uploadDenteRef) formData.append('dente_referencia', uploadDenteRef.trim())
+      if (uploadArquivo) {
+        formData.append('arquivo', uploadArquivo)
+        formData.append('tamanho_bytes', String(uploadArquivo.size))
+      }
+
+      const tagsArray = uploadTagsStr
+        ? uploadTagsStr
+            .split(',')
+            .map((t) => t.trim())
+            .filter(Boolean)
+        : []
+      if (tagsArray.length > 0) {
+        formData.append('tags', JSON.stringify(tagsArray))
+      }
+      formData.append('data_exame', new Date().toISOString().slice(0, 10))
+
+      const novoExame = await pb.collection('exames_anexos').create<ExameAnexoRecord>(formData)
+
+      await registrarAuditoria({
+        tenantId,
+        userEmail: user?.email,
+        perfil,
+        targetPatientId: id,
+        acao: 'anexou_exame_radiografia',
+        detalhes: `Upload do exame "${novoExame.titulo}" (${novoExame.tipo}) para o paciente ${paciente?.nome} com arquivo: ${uploadArquivo?.name || 'anexo'}.`,
+      })
+
+      toast({
+        title: 'Exame anexado com sucesso!',
+        description: 'Arquivo armazenado com integridade clínica e auditado.',
+      })
+
+      setModalUploadExameAberto(false)
+      setUploadArquivo(null)
+      setUploadTitulo('')
+      setUploadDescricao('')
+      setUploadDenteRef('')
+      setUploadTagsStr('')
+      carregarFicha()
+    } catch (err: any) {
+      toast({ title: 'Erro no upload do exame', description: err.message, variant: 'destructive' })
+    } finally {
+      setSalvandoExame(false)
+    }
+  }
+
+  const handleExcluirExame = async (ex: ExameAnexoRecord) => {
+    if (!canAccessClinical()) return
+    const confirma = window.confirm(
+      `Deseja realmente remover o exame "${ex.titulo || ex.descricao}"?`,
+    )
+    if (!confirma) return
+
+    try {
+      await pb.collection('exames_anexos').delete(ex.id)
+      await registrarAuditoria({
+        tenantId,
+        userEmail: user?.email,
+        perfil,
+        targetPatientId: id,
+        acao: 'excluiu_exame_anexo',
+        detalhes: `Exclusão do exame "${ex.titulo || ex.id}" do prontuário por ${user?.email}.`,
+      })
+      toast({ title: 'Exame excluído com sucesso' })
+      carregarFicha()
+    } catch (err: any) {
+      toast({ title: 'Erro ao excluir exame', description: err.message, variant: 'destructive' })
+    }
+  }
+
+  const handleAbrirZoom = (ex: ExameAnexoRecord) => {
+    setExameZoom(ex)
+    setModalZoomAberto(true)
+    // Registrar auditoria de visualização detalhada
+    registrarAuditoria({
+      tenantId,
+      userEmail: user?.email,
+      perfil,
+      targetPatientId: id,
+      acao: 'visualizou_detalhe_exame',
+      detalhes: `Inspeção detalhada/zoom do exame ID: ${ex.id} (${ex.tipo})`,
+    })
+  }
+
+  const getArquivoUrl = (ex: ExameAnexoRecord) => {
+    if (ex.arquivo) {
+      return pb.files.getUrl(ex, ex.arquivo)
+    }
+    return ex.url_arquivo || ''
+  }
+
+  const isImagem = (ex: ExameAnexoRecord) => {
+    const url = getArquivoUrl(ex).toLowerCase()
+    return (
+      url.endsWith('.png') ||
+      url.endsWith('.jpg') ||
+      url.endsWith('.jpeg') ||
+      url.endsWith('.webp') ||
+      url.includes('img.usecurling.com') ||
+      ['panoramica', 'periapical', 'tomografia', 'foto_clinica', 'raiox'].includes(ex.tipo)
+    )
+  }
+
+  // BL-020: Vínculos Familiares
+  const handleCadastrarVinculo = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!id) return
+
+    const nomeFinal =
+      vinculoRespNome.trim() || todosPacientes.find((p) => p.id === vinculoRespId)?.nome || ''
+
+    if (!nomeFinal) {
+      toast({ title: 'Informe ou selecione o responsável', variant: 'destructive' })
+      return
+    }
+
+    setSalvandoVinculo(true)
+    try {
+      await pb.collection('vinculos_familiares').create<VinculoFamiliarRecord>({
+        tenant_id: tenantId,
+        paciente_id: id,
+        responsavel_id: vinculoRespId || undefined,
+        responsavel_nome: nomeFinal,
+        responsavel_cpf: vinculoRespCpf ? formatarCPF(vinculoRespCpf) : undefined,
+        responsavel_telefone: vinculoRespTel || undefined,
+        parentesco: vinculoParentesco,
+        financeiro_responsavel: vinculoFinanceiro,
+        observacoes: vinculoObs.trim() || undefined,
+      })
+
+      // Se for responsável financeiro, espelhar na ficha do paciente para garantia de menores
+      if (vinculoFinanceiro) {
+        await pb.collection('pacientes').update(id, {
+          responsavel_legal: nomeFinal,
+          responsavel_cpf: vinculoRespCpf ? formatarCPF(vinculoRespCpf) : paciente?.responsavel_cpf,
+        })
+      }
+
+      await registrarAuditoria({
+        tenantId,
+        userEmail: user?.email,
+        perfil,
+        targetPatientId: id,
+        acao: 'cadastrou_vinculo_familiar',
+        detalhes: `Vínculo familiar cadastrado: ${nomeFinal} (${vinculoParentesco}), Responsável financeiro: ${vinculoFinanceiro ? 'Sim' : 'Não'}.`,
+      })
+
+      toast({
+        title: 'Vínculo familiar registrado com sucesso!',
+        description: 'Responsável e parentesco associados ao prontuário.',
+      })
+
+      setModalVinculoAberto(false)
+      setVinculoRespId('')
+      setVinculoRespNome('')
+      setVinculoRespCpf('')
+      setVinculoRespTel('')
+      setVinculoParentesco('mae')
+      setVinculoFinanceiro(true)
+      setVinculoObs('')
+      carregarFicha()
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao cadastrar vínculo',
+        description: err.message,
+        variant: 'destructive',
+      })
+    } finally {
+      setSalvandoVinculo(false)
+    }
+  }
+
+  const handleExcluirVinculo = async (vinc: VinculoFamiliarRecord) => {
+    const confirma = window.confirm(
+      `Remover o vínculo com "${vinc.responsavel_nome || 'responsável'}"?`,
+    )
+    if (!confirma) return
+
+    try {
+      await pb.collection('vinculos_familiares').delete(vinc.id)
+      await registrarAuditoria({
+        tenantId,
+        userEmail: user?.email,
+        perfil,
+        targetPatientId: id,
+        acao: 'removeu_vinculo_familiar',
+        detalhes: `Vínculo ID ${vinc.id} removido do paciente.`,
+      })
+      toast({ title: 'Vínculo removido com sucesso' })
+      carregarFicha()
+    } catch (err: any) {
+      toast({ title: 'Erro ao remover vínculo', description: err.message, variant: 'destructive' })
     }
   }
 
@@ -356,13 +636,17 @@ export default function PacienteDetalhes() {
                   {unidadeEncontrada.nome}
                 </Badge>
               )}
-              {score > 50 && (
+              {score >= 50 ? (
+                <Badge className="text-xs px-2.5 py-0.5 bg-rose-100 text-rose-800 border-rose-300 font-bold flex items-center gap-1.5 shadow-sm animate-pulse">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>Alto Risco de Evasão ({score}%)</span>
+                </Badge>
+              ) : (
                 <Badge
                   variant="outline"
-                  className="text-[10px] bg-amber-50 text-amber-700 border-amber-200 flex items-center gap-1"
+                  className="text-[10px] bg-slate-50 text-slate-600 border-slate-200 flex items-center gap-1"
                 >
-                  <AlertTriangle className="w-3 h-3 text-amber-500" />
-                  Risco de Evasão ({score}%)
+                  Score de Evasão: {score}%
                 </Badge>
               )}
             </div>
@@ -434,7 +718,7 @@ export default function PacienteDetalhes() {
                 Anamnese Digital (RF-011)
               </TabsTrigger>
               <TabsTrigger value="exames" className="text-xs">
-                Exames & Imagens
+                Exames & Radiografias (BL-015)
               </TabsTrigger>
             </>
           ) : (
@@ -443,6 +727,10 @@ export default function PacienteDetalhes() {
               <span>Dados clínicos restritos a Dentistas/ASB</span>
             </div>
           )}
+
+          <TabsTrigger value="familia" className="text-xs">
+            Família & Responsáveis (BL-020)
+          </TabsTrigger>
 
           {hasModule('orcamentos') && (
             <TabsTrigger value="orcamentos" className="text-xs">
@@ -878,47 +1166,316 @@ export default function PacienteDetalhes() {
           </TabsContent>
         )}
 
-        {/* 3. Exames e Radiografias (Somente clínico) */}
+        {/* 3. Exames e Radiografias (BL-015 - Restrito a perfis clínicos com auditoria LGPD) */}
         {canAccessClinical() && (
           <TabsContent value="exames" className="space-y-4">
-            <Card className="border-slate-200">
+            <Card className="border-slate-200 shadow-sm">
               <CardHeader className="pb-3 flex flex-row items-center justify-between">
                 <div>
-                  <CardTitle className="text-sm font-semibold">
-                    Galeria de Exames & Imagens
+                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-[#0E7490]" />
+                    Galeria de Exames & Radiografias Digitais (BL-015)
                   </CardTitle>
                   <CardDescription className="text-xs">
-                    Armazenamento seguro de radiografias periapicais e fotos clínicas
+                    Radiografias panorâmicas, periapicais, tomografias, fotos clínicas e laudos
+                    vinculados a dentes
                   </CardDescription>
                 </div>
+                <Button
+                  size="sm"
+                  onClick={() => setModalUploadExameAberto(true)}
+                  className="bg-[#0E7490] hover:bg-[#155E75] text-white text-xs h-8 gap-1.5"
+                >
+                  <UploadCloud className="w-3.5 h-3.5" />
+                  <span>Anexar Exame / Imagem</span>
+                </Button>
               </CardHeader>
               <CardContent>
                 {exames.length === 0 ? (
-                  <div className="py-8 text-center text-slate-400 text-xs">
-                    Nenhum exame ou foto anexado ao prontuário.
+                  <div className="py-12 text-center text-slate-400 text-xs space-y-2">
+                    <Paperclip className="w-8 h-8 mx-auto text-slate-300" />
+                    <p>Nenhum exame ou foto anexado ao prontuário até o momento.</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setModalUploadExameAberto(true)}
+                      className="text-xs h-8"
+                    >
+                      Clique aqui para enviar o primeiro exame
+                    </Button>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                    {exames.map((ex) => (
-                      <div
-                        key={ex.id}
-                        className="p-3 rounded-lg border border-slate-200 bg-slate-50 space-y-2"
-                      >
-                        <div className="h-28 bg-slate-200 rounded flex items-center justify-center text-slate-400">
-                          <Paperclip className="w-8 h-8" />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {exames.map((ex) => {
+                      const fileUrl = getArquivoUrl(ex)
+                      const isImg = isImagem(ex)
+
+                      return (
+                        <div
+                          key={ex.id}
+                          className="p-3 rounded-xl border border-slate-200 bg-white shadow-xs hover:shadow-sm transition-all flex flex-col justify-between space-y-2.5"
+                        >
+                          <div>
+                            {/* Preview visual */}
+                            <div
+                              onClick={() => handleAbrirZoom(ex)}
+                              className="h-36 rounded-lg bg-slate-100 overflow-hidden relative cursor-pointer border border-slate-200 group flex items-center justify-center"
+                            >
+                              {fileUrl && isImg ? (
+                                <img
+                                  src={fileUrl}
+                                  alt={ex.titulo || ex.descricao}
+                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                                />
+                              ) : (
+                                <div className="text-center p-3 text-slate-400 space-y-1">
+                                  <FileText className="w-10 h-10 mx-auto text-[#0E7490]" />
+                                  <span className="text-[10px] uppercase font-mono block">
+                                    Documento / Laudo PDF
+                                  </span>
+                                </div>
+                              )}
+                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 text-white">
+                                <ZoomIn className="w-5 h-5" />
+                                <span className="text-xs font-semibold">Visualizar</span>
+                              </div>
+                            </div>
+
+                            {/* Informações clínicas */}
+                            <div className="mt-2.5 space-y-1">
+                              <div className="flex items-center justify-between gap-1">
+                                <span className="font-semibold text-xs text-slate-900 truncate">
+                                  {ex.titulo || ex.descricao}
+                                </span>
+                                <Badge
+                                  variant="outline"
+                                  className="text-[9px] uppercase font-semibold bg-cyan-50 text-cyan-800 border-cyan-200 shrink-0"
+                                >
+                                  {ex.tipo.replace(/_/g, ' ')}
+                                </Badge>
+                              </div>
+
+                              {ex.dente_referencia && (
+                                <div className="text-[11px] text-slate-600">
+                                  <strong className="text-slate-700">Dente/Região:</strong>{' '}
+                                  {ex.dente_referencia}
+                                </div>
+                              )}
+
+                              <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed">
+                                {ex.descricao}
+                              </p>
+
+                              {ex.tags && ex.tags.length > 0 && (
+                                <div className="flex flex-wrap gap-1 pt-1">
+                                  {ex.tags.map((t, idx) => (
+                                    <span
+                                      key={idx}
+                                      className="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded"
+                                    >
+                                      #{t}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Rodapé com data e ações */}
+                          <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400">
+                            <span>{ex.data_exame || ex.created?.slice(0, 10)}</span>
+                            <div className="flex items-center gap-1">
+                              {fileUrl && (
+                                <a
+                                  href={fileUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  download
+                                  className="p-1 hover:text-[#0E7490] transition-colors"
+                                  title="Baixar Arquivo Original"
+                                  onClick={() => {
+                                    registrarAuditoria({
+                                      tenantId,
+                                      userEmail: user?.email,
+                                      perfil,
+                                      targetPatientId: id,
+                                      acao: 'baixou_exame_anexo',
+                                      detalhes: `Download do exame ID ${ex.id} (${ex.titulo})`,
+                                    })
+                                  }}
+                                >
+                                  <Download className="w-3.5 h-3.5" />
+                                </a>
+                              )}
+                              <button
+                                onClick={() => handleExcluirExame(ex)}
+                                className="p-1 hover:text-rose-600 transition-colors"
+                                title="Excluir do Prontuário"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
                         </div>
-                        <div className="font-medium text-xs text-slate-800 truncate">
-                          {ex.descricao}
-                        </div>
-                        <div className="text-[10px] text-slate-500 uppercase">{ex.tipo}</div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </CardContent>
             </Card>
           </TabsContent>
         )}
+
+        {/* 4. Vínculos Familiares & Responsáveis (BL-020) */}
+        <TabsContent value="familia" className="space-y-4">
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader className="pb-3 flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <HeartHandshake className="w-4 h-4 text-[#0E7490]" />
+                  Vínculos Familiares & Responsáveis Legais (BL-020)
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Associação entre familiares, tutores e responsáveis financeiros com garantia para
+                  menores de 18 anos
+                </CardDescription>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => setModalVinculoAberto(true)}
+                className="bg-[#0E7490] hover:bg-[#155E75] text-white text-xs h-8 gap-1.5"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>Adicionar Vínculo Familiar</span>
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {/* Alerta de Menor de Idade sem Vínculo */}
+              {idade !== null && idade < 18 && vinculos.length === 0 && (
+                <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 text-xs flex items-center gap-2.5">
+                  <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0" />
+                  <div>
+                    <strong>Atenção Regulatória (CFO / LGPD):</strong> Este paciente é menor de
+                    idade ({idade} anos) e{' '}
+                    <strong>
+                      exige cadastro formal de pelo menos um responsável legal ou financeiro
+                    </strong>
+                    .
+                  </div>
+                </div>
+              )}
+
+              {vinculos.length === 0 ? (
+                <div className="py-12 text-center text-slate-400 text-xs space-y-2">
+                  <Users className="w-8 h-8 mx-auto text-slate-300" />
+                  <p>Nenhum vínculo familiar cadastrado para este paciente.</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setModalVinculoAberto(true)}
+                    className="text-xs h-8"
+                  >
+                    Cadastrar Responsável / Parente
+                  </Button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {vinculos.map((v) => {
+                    const isPacPrincipal = v.paciente_id === id
+                    const outroNome = isPacPrincipal
+                      ? v.responsavel_nome || v.expand?.responsavel_id?.nome || 'Responsável'
+                      : v.expand?.paciente_id?.nome || 'Paciente Vinculado'
+                    const outroId = isPacPrincipal ? v.responsavel_id : v.paciente_id
+                    const relacaoFmt = v.parentesco.toUpperCase()
+
+                    return (
+                      <div
+                        key={v.id}
+                        className="p-4 rounded-xl border border-slate-200 bg-white shadow-xs space-y-3"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="space-y-0.5">
+                            <div className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                              <span>{outroNome}</span>
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] bg-cyan-50 text-cyan-800 border-cyan-200"
+                              >
+                                {relacaoFmt}
+                              </Badge>
+                            </div>
+                            <div className="text-[11px] text-slate-500">
+                              {v.responsavel_cpf && (
+                                <span className="mr-2">
+                                  CPF:{' '}
+                                  <span className="font-mono text-slate-700">
+                                    {v.responsavel_cpf}
+                                  </span>
+                                </span>
+                              )}
+                              {v.responsavel_telefone && (
+                                <span>
+                                  Tel:{' '}
+                                  <span className="font-mono text-slate-700">
+                                    {v.responsavel_telefone}
+                                  </span>
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1">
+                            {v.financeiro_responsavel && (
+                              <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border-emerald-300 text-[10px]">
+                                Resp. Financeiro
+                              </Badge>
+                            )}
+                            <button
+                              onClick={() => handleExcluirVinculo(v)}
+                              className="text-slate-400 hover:text-rose-600 p-1"
+                              title="Remover vínculo"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {v.observacoes && (
+                          <div className="p-2 bg-slate-50 rounded text-[11px] text-slate-600 border border-slate-100 italic">
+                            "{v.observacoes}"
+                          </div>
+                        )}
+
+                        <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
+                          {outroId ? (
+                            <Button
+                              asChild
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-[11px] text-[#0E7490] hover:bg-cyan-50"
+                            >
+                              <Link to={`/pacientes/${outroId}`}>
+                                <User className="w-3 h-3 mr-1" />
+                                Abrir Ficha do Vinculado
+                              </Link>
+                            </Button>
+                          ) : (
+                            <span className="text-[10px] text-slate-400">
+                              Responsável externo (não paciente)
+                            </span>
+                          )}
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            Cadastrado em {v.created?.slice(0, 10)}
+                          </span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         {/* Aba de Orçamentos vinculados ao Paciente (BL-008) */}
         {hasModule('orcamentos') && (
@@ -1029,6 +1586,353 @@ export default function PacienteDetalhes() {
           </TabsContent>
         )}
       </Tabs>
+
+      {/* Modal BL-015: Upload de Exame / Radiografia */}
+      <Dialog open={modalUploadExameAberto} onOpenChange={setModalUploadExameAberto}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold flex items-center gap-2">
+              <UploadCloud className="w-4 h-4 text-[#0E7490]" />
+              Anexar Exame / Radiografia ao Prontuário
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Arquivos de imagem (PNG, JPG) ou laudos PDF com vínculo odontológico e auditoria
+              clínica.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleUploadExame} className="space-y-3 py-2 text-xs">
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold">Tipo de Exame *</Label>
+              <Select value={uploadTipo} onValueChange={(val: any) => setUploadTipo(val)}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="panoramica">Radiografia Panorâmica</SelectItem>
+                  <SelectItem value="periapical">Radiografia Periapical</SelectItem>
+                  <SelectItem value="tomografia">Tomografia Cone Beam</SelectItem>
+                  <SelectItem value="foto_clinica">Foto Clínica Intra/Extra-oral</SelectItem>
+                  <SelectItem value="laudo">Laudo Especializado</SelectItem>
+                  <SelectItem value="documento">Documento / Termo Escaneado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">Título do Exame *</Label>
+                <Input
+                  required
+                  placeholder="Ex: Panorâmica Inicial 2025"
+                  value={uploadTitulo}
+                  onChange={(e) => setUploadTitulo(e.target.value)}
+                  className="h-8 text-xs"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">Dente(s) de Referência</Label>
+                <Input
+                  placeholder="Ex: 18, 28, 38, 48"
+                  value={uploadDenteRef}
+                  onChange={(e) => setUploadDenteRef(e.target.value)}
+                  className="h-8 text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold">Tags (separadas por vírgula)</Label>
+              <Input
+                placeholder="Ex: siso, carie, implante, pre-operatorio"
+                value={uploadTagsStr}
+                onChange={(e) => setUploadTagsStr(e.target.value)}
+                className="h-8 text-xs"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold">Descrição Clínica / Observações</Label>
+              <Textarea
+                placeholder="Descreva achados clínicos ou detalhes do exame..."
+                value={uploadDescricao}
+                onChange={(e) => setUploadDescricao(e.target.value)}
+                className="h-16 text-xs resize-none"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold">Selecionar Arquivo (Imagem ou PDF) *</Label>
+              <Input
+                type="file"
+                accept="image/*,.pdf"
+                required
+                onChange={(e) => {
+                  const files = e.target.files
+                  if (files && files[0]) {
+                    setUploadArquivo(files[0])
+                    if (!uploadTitulo) {
+                      setUploadTitulo(files[0].name.replace(/\.[^/.]+$/, ''))
+                    }
+                  }
+                }}
+                className="h-9 text-xs file:text-xs file:bg-slate-100 file:border-0 file:mr-2"
+              />
+            </div>
+
+            <DialogFooter className="pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setModalUploadExameAberto(false)}
+                className="h-8 text-xs"
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                disabled={salvandoExame}
+                size="sm"
+                className="h-8 text-xs bg-[#0E7490] hover:bg-[#155E75] text-white"
+              >
+                {salvandoExame ? 'Enviando...' : 'Fazer Upload'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal BL-015: Zoom de Exames */}
+      <Dialog open={modalZoomAberto} onOpenChange={setModalZoomAberto}>
+        <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col p-4">
+          <DialogHeader className="pb-2 border-b">
+            <DialogTitle className="text-sm font-semibold flex items-center justify-between">
+              <span>{exameZoom?.titulo || 'Visualização do Exame'}</span>
+              <Badge variant="outline" className="text-[10px] uppercase bg-cyan-50 text-cyan-800">
+                {exameZoom?.tipo}
+              </Badge>
+            </DialogTitle>
+            {exameZoom?.descricao && (
+              <DialogDescription className="text-xs text-slate-600">
+                {exameZoom.descricao}
+              </DialogDescription>
+            )}
+          </DialogHeader>
+
+          <div className="flex-1 overflow-auto flex items-center justify-center p-2 min-h-[350px] bg-slate-900 rounded-lg">
+            {exameZoom && isImagem(exameZoom) ? (
+              <img
+                src={getArquivoUrl(exameZoom)}
+                alt={exameZoom.titulo || 'Exame'}
+                className="max-h-[65vh] max-w-full object-contain rounded"
+              />
+            ) : (
+              <div className="text-center text-white space-y-3 p-6">
+                <FileText className="w-16 h-16 mx-auto text-cyan-400" />
+                <p className="text-xs text-slate-300">Visualização de arquivo PDF ou documento.</p>
+                {exameZoom && getArquivoUrl(exameZoom) && (
+                  <Button
+                    asChild
+                    size="sm"
+                    className="bg-[#0E7490] hover:bg-[#155E75] text-white text-xs"
+                  >
+                    <a
+                      href={getArquivoUrl(exameZoom)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      download
+                    >
+                      <Download className="w-3.5 h-3.5 mr-1" />
+                      Baixar Arquivo Completo
+                    </a>
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="pt-2 flex items-center justify-between">
+            <div className="text-[11px] text-slate-500 font-mono">
+              {exameZoom?.dente_referencia && <span>Dente: {exameZoom.dente_referencia} • </span>}
+              <span>Data: {exameZoom?.data_exame || exameZoom?.created?.slice(0, 10)}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              {exameZoom && getArquivoUrl(exameZoom) && (
+                <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                  <a
+                    href={getArquivoUrl(exameZoom)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    download
+                  >
+                    <Download className="w-3.5 h-3.5 mr-1" />
+                    Download Original
+                  </a>
+                </Button>
+              )}
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => setModalZoomAberto(false)}
+                className="h-8 text-xs bg-[#0E7490] hover:bg-[#155E75] text-white"
+              >
+                Fechar
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal BL-020: Cadastro de Vínculo Familiar */}
+      <Dialog open={modalVinculoAberto} onOpenChange={setModalVinculoAberto}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold flex items-center gap-2">
+              <HeartHandshake className="w-4 h-4 text-[#0E7490]" />
+              Cadastrar Vínculo Familiar / Responsável
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Vincule um paciente já cadastrado ou registre um responsável legal externo com dados
+              para cobrança.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleCadastrarVinculo} className="space-y-3 py-2 text-xs">
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold">Vincular a Paciente Já Cadastrado</Label>
+              <Select
+                value={vinculoRespId}
+                onValueChange={(val) => {
+                  setVinculoRespId(val)
+                  const p = todosPacientes.find((x) => x.id === val)
+                  if (p) {
+                    setVinculoRespNome(p.nome)
+                    if (p.cpf) setVinculoRespCpf(p.cpf)
+                    if (p.telefone) setVinculoRespTel(p.telefone)
+                  }
+                }}
+              >
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Selecione paciente ou preencha manual..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">
+                    -- Responsável não cadastrado (Preencher abaixo) --
+                  </SelectItem>
+                  {todosPacientes.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.nome} {p.cpf ? `(${p.cpf})` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold">Nome Completo do Responsável *</Label>
+              <Input
+                required
+                placeholder="Ex: Maria Aparecida da Silva"
+                value={vinculoRespNome}
+                onChange={(e) => setVinculoRespNome(e.target.value)}
+                className="h-8 text-xs"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">Grau de Parentesco *</Label>
+                <Select
+                  value={vinculoParentesco}
+                  onValueChange={(val: any) => setVinculoParentesco(val)}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="mae">Mãe</SelectItem>
+                    <SelectItem value="pai">Pai</SelectItem>
+                    <SelectItem value="filho">Filho(a)</SelectItem>
+                    <SelectItem value="conjuge">Cônjuge</SelectItem>
+                    <SelectItem value="irmao">Irmão/Irmã</SelectItem>
+                    <SelectItem value="avo">Avô/Avó</SelectItem>
+                    <SelectItem value="tutor">Tutor / Curador Legal</SelectItem>
+                    <SelectItem value="outro">Outro Parentesco</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">CPF do Responsável</Label>
+                <Input
+                  placeholder="000.000.000-00"
+                  value={vinculoRespCpf}
+                  onChange={(e) => setVinculoRespCpf(e.target.value)}
+                  className="h-8 text-xs font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold">Telefone de Contato</Label>
+              <Input
+                placeholder="(11) 99999-9999"
+                value={vinculoRespTel}
+                onChange={(e) => setVinculoRespTel(e.target.value)}
+                className="h-8 text-xs font-mono"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 p-2 bg-slate-50 border rounded-lg">
+              <input
+                type="checkbox"
+                id="vinculoFinanceiroCheck"
+                checked={vinculoFinanceiro}
+                onChange={(e) => setVinculoFinanceiro(e.target.checked)}
+                className="rounded border-slate-300 text-[#0E7490] focus:ring-[#0E7490]"
+              />
+              <label
+                htmlFor="vinculoFinanceiroCheck"
+                className="text-xs text-slate-700 cursor-pointer font-medium"
+              >
+                Responsável Financeiro (recebe cobranças e responde por títulos)
+              </label>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold">Observações / Detalhes de Guarda</Label>
+              <Textarea
+                placeholder="Ex: Guarda compartilhada, autorização para buscar na clínica..."
+                value={vinculoObs}
+                onChange={(e) => setVinculoObs(e.target.value)}
+                className="h-16 text-xs resize-none"
+              />
+            </div>
+
+            <DialogFooter className="pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setModalVinculoAberto(false)}
+                className="h-8 text-xs"
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                disabled={salvandoVinculo}
+                size="sm"
+                className="h-8 text-xs bg-[#0E7490] hover:bg-[#155E75] text-white"
+              >
+                {salvandoVinculo ? 'Salvando...' : 'Gravar Vínculo'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

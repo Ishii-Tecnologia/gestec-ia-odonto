@@ -24,6 +24,7 @@ import {
   Server,
   UserCheck,
   MessageSquare,
+  FileText,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -73,6 +74,12 @@ const NAV_ITEMS: NavItem[] = [
     icon: DollarSign,
     modulo: 'financeiro',
     financialOnly: true,
+  },
+  {
+    name: 'Documentos & Prescrições',
+    path: '/documentos',
+    icon: FileText,
+    modulo: 'documentos',
   },
   {
     name: 'Comunicação & Fila',

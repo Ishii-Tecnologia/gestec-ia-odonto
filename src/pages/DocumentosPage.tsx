@@ -123,7 +123,7 @@ const TEMPLATES_PRESCRICAO = [
 ]
 
 export const DocumentosPage = () => {
-  const { tenant, tenantId, user, perfil, unidadeAtual } = useAuth()
+  const { tenant, tenantId, user, perfil, selectedUnidade, selectedUnidadeId, unidades } = useAuth()
   const { toast } = useToast()
 
   const [documentos, setDocumentos] = useState<PrescricaoRecord[]>([])
@@ -292,9 +292,13 @@ export const DocumentosPage = () => {
       // Gerar hash simulado de autenticação digital conforme CFO
       const hashSimulado = `HASH-CFO-${Math.random().toString(36).substring(2, 10).toUpperCase()}-${Date.now().toString().slice(-4)}`
 
+      const unidadeIdEfetiva =
+        selectedUnidade?.id ||
+        (selectedUnidadeId !== 'todas' ? selectedUnidadeId : unidades[0]?.id || '')
+
       const payload = {
         tenant_id: tenantId,
-        unidade_id: unidadeAtual?.id || '',
+        unidade_id: unidadeIdEfetiva,
         paciente_id: pacienteId,
         profissional_id: profissionalId,
         tipo_documento: tipoDocumento,
@@ -910,8 +914,8 @@ export const DocumentosPage = () => {
                     {tenant?.cnpj || '12.345.678/0001-90'}
                   </p>
                   <p className="text-[11px] text-slate-500 font-sans">
-                    {unidadeAtual?.endereco || 'Av. Paulista, 1000 - São Paulo, SP'} • Tel:{' '}
-                    {unidadeAtual?.telefone || '(11) 3214-5678'}
+                    {selectedUnidade?.endereco || 'Av. Paulista, 1000 - São Paulo, SP'} • Tel:{' '}
+                    {selectedUnidade?.telefone || '(11) 3214-5678'}
                   </p>
                 </div>
 

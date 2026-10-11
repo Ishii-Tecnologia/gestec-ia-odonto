@@ -47,7 +47,9 @@ import {
   CalendarDays,
   FileText,
   Percent,
+  AlertTriangle,
 } from 'lucide-react'
+import { Link } from 'react-router-dom'
 
 export default function RelatoriosPage() {
   const {
@@ -323,7 +325,63 @@ export default function RelatoriosPage() {
       .reduce((acc, curr) => acc + (curr.valor_liquido || curr.valor || 0), 0)
   }, [lancamentosFiltrados])
 
-  // 5. Eficácia de Lembretes e Confirmação (BL-010 + BL-012)
+  // 5. BL-014: Score de Evasão e Pacientes de Alto Risco (calculado a partir de dados reais da base)
+  const rankingEvasao = useMemo(() => {
+    // Para cada paciente, calcular faltas recentes, total consultas e dias desde a última visita
+    const hoje = new Date()
+    return pacientes
+      .map((pac) => {
+        const consultasPac = agendamentos.filter((a) => a.paciente_id === pac.id)
+        const total = consultasPac.length
+        const faltas = consultasPac.filter((a) => a.status === 'falta').length
+        const cancelados = consultasPac.filter((a) => a.status === 'cancelado').length
+
+        // Faltas consecutivas mais recentes
+        const ordenadas = [...consultasPac].sort((a, b) =>
+          (b.data_inicio || '').localeCompare(a.data_inicio || ''),
+        )
+        let faltasConsecutivas = 0
+        for (const ag of ordenadas) {
+          if (ag.status === 'falta') faltasConsecutivas++
+          else if (ag.status === 'concluido') break
+        }
+
+        // Dias desde a última visita
+        const ultimaConcluida = ordenadas.find((a) => a.status === 'concluido')
+        let diasUltimaVisita = 999
+        if (ultimaConcluida?.data_inicio) {
+          const diffMs = hoje.getTime() - new Date(ultimaConcluida.data_inicio).getTime()
+          diasUltimaVisita = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)))
+        }
+
+        // Score derivado ou gravado no paciente
+        let scoreCalculado = pac.score_evasao || 0
+        if (scoreCalculado === 0 && total > 0) {
+          // Heurística baseada em faltas e ausência
+          let pts = 0
+          if (faltasConsecutivas >= 2) pts += 40
+          else if (faltasConsecutivas === 1) pts += 20
+          if (diasUltimaVisita > 180) pts += 30
+          else if (diasUltimaVisita > 90) pts += 15
+          if (cancelados >= 2) pts += 15
+          scoreCalculado = Math.min(100, pts)
+        }
+
+        return {
+          paciente: pac,
+          total,
+          faltas,
+          cancelados,
+          faltasConsecutivas,
+          diasUltimaVisita,
+          score: scoreCalculado,
+        }
+      })
+      .filter((item) => item.score > 0 || item.faltas > 0)
+      .sort((a, b) => b.score - a.score)
+  }, [pacientes, agendamentos])
+
+  // 6. Eficácia de Lembretes e Confirmação (BL-010 + BL-012)
   const lembretesFiltrados = useMemo(() => {
     return lembretes.filter((l) => {
       const dataIso = l.data_envio
@@ -803,6 +861,101 @@ export default function RelatoriosPage() {
                 </CardContent>
               </Card>
             </div>
+
+            {/* Painel de Risco de Evasão (BL-014) */}
+            <Card className="border-slate-200 shadow-sm">
+              <CardHeader className="pb-3 flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="text-sm font-semibold flex items-center gap-2 text-rose-900">
+                    <AlertTriangle className="w-4 h-4 text-rose-600" />
+                    Painel Preditivo de Risco de Evasão & No-Show (BL-014)
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Pacientes priorizados por faltas consecutivas, tempo sem retorno e score de
+                    abandono clínico (≥ 50% em alerta)
+                  </CardDescription>
+                </div>
+                <Badge
+                  variant="outline"
+                  className="text-xs bg-rose-50 text-rose-700 border-rose-200"
+                >
+                  {rankingEvasao.filter((r) => r.score >= 50).length} Pacientes em Alto Risco
+                </Badge>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-semibold text-[11px]">
+                      <tr>
+                        <th className="py-2.5 px-4">Paciente</th>
+                        <th className="py-2.5 px-4">Telefone</th>
+                        <th className="py-2.5 px-4 text-center">Faltas Consecutivas</th>
+                        <th className="py-2.5 px-4 text-center">Tempo Sem Visita</th>
+                        <th className="py-2.5 px-4 text-center">Score de Evasão</th>
+                        <th className="py-2.5 px-4 text-right">Ação Preventiva</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {rankingEvasao.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-6 text-center text-slate-400">
+                            Nenhum paciente com indicador de risco ou histórico de faltas.
+                          </td>
+                        </tr>
+                      ) : (
+                        rankingEvasao.slice(0, 10).map((r, idx) => (
+                          <tr key={idx} className="hover:bg-slate-50">
+                            <td className="py-2.5 px-4 font-semibold text-slate-900">
+                              <Link
+                                to={`/pacientes/${r.paciente.id}`}
+                                className="hover:text-[#0E7490] hover:underline flex items-center gap-1.5"
+                              >
+                                <span>{r.paciente.nome}</span>
+                              </Link>
+                            </td>
+                            <td className="py-2.5 px-4 font-mono text-slate-500">
+                              {r.paciente.telefone || '—'}
+                            </td>
+                            <td className="py-2.5 px-4 text-center font-bold text-rose-600">
+                              {r.faltasConsecutivas > 0 ? `${r.faltasConsecutivas} falta(s)` : '0'}
+                            </td>
+                            <td className="py-2.5 px-4 text-center text-slate-600">
+                              {r.diasUltimaVisita < 900
+                                ? `${r.diasUltimaVisita} dias`
+                                : 'Sem consulta concluída'}
+                            </td>
+                            <td className="py-2.5 px-4 text-center">
+                              {r.score >= 50 ? (
+                                <Badge className="bg-rose-100 text-rose-800 border-rose-300 font-bold text-[11px]">
+                                  {r.score}% (Alto Risco)
+                                </Badge>
+                              ) : (
+                                <Badge
+                                  variant="outline"
+                                  className="bg-amber-50 text-amber-700 border-amber-200 text-[11px]"
+                                >
+                                  {r.score}% (Médio)
+                                </Badge>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-4 text-right">
+                              <Button
+                                asChild
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-[11px] text-[#0E7490] hover:bg-cyan-50"
+                              >
+                                <Link to={`/pacientes/${r.paciente.id}`}>Ficha & Reativação</Link>
+                              </Button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* ABA 2: Produção por Profissional */}
