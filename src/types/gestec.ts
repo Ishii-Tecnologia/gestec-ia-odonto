@@ -215,16 +215,52 @@ export interface AgendamentoRecord {
 export interface FilaEsperaRecord {
   id: string
   tenant_id: string
+  unidade_id?: string
   paciente_id: string
   profissional_id?: string
+  procedimento?: string
+  periodo_preferencia?: 'manha' | 'tarde' | 'noite' | 'qualquer'
+  dias_semana?: string[]
   data_desejada?: string
-  prioridade?: number
+  prioridade?: number // 1 a 5
   status: 'aguardando' | 'ofertado' | 'atendido' | 'cancelado'
+  contato_telefone?: string
   observacoes?: string
+  oferta_enviada_em?: string
   created?: string
+  updated?: string
   expand?: {
     paciente_id?: PacienteRecord
     profissional_id?: ProfissionalRecord
+  }
+}
+
+export interface VinculoFamiliarRecord {
+  id: string
+  tenant_id: string
+  paciente_id: string
+  responsavel_id?: string
+  responsavel_nome?: string
+  responsavel_cpf?: string
+  responsavel_telefone?: string
+  parentesco:
+    | 'pai'
+    | 'mae'
+    | 'filho'
+    | 'filha'
+    | 'conjuge'
+    | 'irmao'
+    | 'irma'
+    | 'avo'
+    | 'tutor'
+    | 'outro'
+  financeiro_responsavel?: boolean
+  observacoes?: string
+  created?: string
+  updated?: string
+  expand?: {
+    paciente_id?: PacienteRecord
+    responsavel_id?: PacienteRecord
   }
 }
 
@@ -441,24 +477,71 @@ export interface MessageLembreteRecord {
 export interface ExameAnexoRecord {
   id: string
   tenant_id: string
+  unidade_id?: string
   paciente_id: string
-  arquivo: string
-  tipo: 'raiox' | 'foto_clinica' | 'documento' | 'laudo'
+  profissional_id?: string
+  arquivo?: string
+  url_arquivo?: string
+  tipo:
+    | 'raiox'
+    | 'panoramica'
+    | 'periapical'
+    | 'tomografia'
+    | 'foto_clinica'
+    | 'documento'
+    | 'laudo'
+    | 'outro'
+  titulo?: string
   descricao: string
   data_exame?: string
+  dente_referencia?: string
+  tags?: string[]
+  tamanho_bytes?: number
   created?: string
+  updated?: string
+  expand?: {
+    paciente_id?: PacienteRecord
+    profissional_id?: ProfissionalRecord
+  }
+}
+
+export interface MedicamentoPrescrito {
+  medicamento: string
+  dosagem?: string
+  via?: string
+  posologia: string
+  duracao?: string
+  quantidade?: string
 }
 
 export interface PrescricaoRecord {
   id: string
   tenant_id: string
+  unidade_id?: string
   paciente_id: string
+  profissional_id?: string
+  tipo_documento:
+    | 'receituario_simples'
+    | 'receituario_controle_especial'
+    | 'atestado_comparecimento'
+    | 'atestado_afastamento'
+    | 'orientacao_pos_operatoria'
   data: string
-  medicamentos: any[]
+  dias_afastamento?: number
+  cid10?: string
+  medicamentos: MedicamentoPrescrito[]
   instrucoes?: string
   dentista_nome: string
   cro: string
+  cro_uf?: string
+  assinatura_digital_hash?: string
+  emitido_em?: string
   created?: string
+  updated?: string
+  expand?: {
+    paciente_id?: PacienteRecord
+    profissional_id?: ProfissionalRecord
+  }
 }
 
 export interface AuditoriaAcessoRecord {
