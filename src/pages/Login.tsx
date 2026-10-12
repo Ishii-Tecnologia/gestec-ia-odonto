@@ -67,13 +67,14 @@ export default function Login() {
         title: 'Login de Demonstração',
         description: `Conectado como ${demoEmail}`,
       })
-      navigate('/')
+      navigate(demoEmail === 'superadmin@gestecodonto.com.br' ? '/superadmin' : '/')
     } catch (err: any) {
       toast({
-        title: 'Falha ao logar',
-        description: err.message,
-        variant: 'destructive',
+        title: 'Credencial já alterada',
+        description:
+          'A senha inicial padrão já foi substituída nesta conta pelo fluxo de hardening. Digite sua nova senha no campo acima.',
       })
+      setSenha('')
     } finally {
       setSubmitting(false)
     }

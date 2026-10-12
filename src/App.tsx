@@ -16,6 +16,7 @@ import PacientesList from './pages/PacientesList'
 import PacienteDetalhes from './pages/PacienteDetalhes'
 import ProntuarioPage from './pages/ProntuarioPage'
 import { RequireProfile } from './components/RequireProfile'
+import { SecurityGate } from './components/SecurityGate'
 import OrcamentosPage from './pages/OrcamentosPage'
 import FinanceiroPage from './pages/FinanceiroPage'
 import RelatoriosPage from './pages/RelatoriosPage'
@@ -38,8 +39,14 @@ const App = () => (
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/agendar-online" element={<AgendamentoPublico />} />
 
-          {/* Rotas Protegidas dentro do Layout Shell da Aplicação */}
-          <Route element={<Layout />}>
+          {/* Rotas Protegidas envolvidas por SecurityGate (Troca de senha + MFA) e Layout Shell */}
+          <Route
+            element={
+              <SecurityGate>
+                <Layout />
+              </SecurityGate>
+            }
+          >
             <Route path="/" element={<Index />} />
             <Route path="/agenda" element={<Agenda />} />
             <Route path="/pacientes" element={<PacientesList />} />

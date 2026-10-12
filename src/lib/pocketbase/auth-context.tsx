@@ -2,6 +2,8 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
 import pb from './client'
 import { TenantRecord, UserPerfil, UserRecord, ModuloId, UnidadeRecord } from '@/types/gestec'
 import { validarDependenciasModulo } from '@/services/entitlements'
+import { registrarAuditoria } from './auditoria'
+import { verifyTotpCode, generateRecoveryCodes, validarForcaSenha } from '@/services/totp'
 
 interface AuthContextType {
   user: UserRecord | null
@@ -28,6 +30,16 @@ interface AuthContextType {
   isOwner: () => boolean
   toggleModuleEntitlement: (modulo: ModuloId, active: boolean) => Promise<void>
   refreshTenant: () => Promise<void>
+  // Etapa 6 - Hardening: Troca de senha inicial e MFA
+  mustChangePassword: boolean
+  mustSetupMfa: boolean
+  mfaPendingVerification: boolean
+  completePasswordChange: (novaSenha: string) => Promise<void>
+  verifyMfaLogin: (codigoOuRecovery: string) => Promise<boolean>
+  enableMfaForUser: (secret: string, recoveryCodes: string[]) => Promise<void>
+  disableMfaForUser: (codigoOuAdminSecret?: string) => Promise<void>
+  regenerateRecoveryCodes: () => Promise<string[]>
+  refreshCurrentUser: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -42,6 +54,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   })
   const [simulatedPerfil, setSimulatedPerfil] = useState<UserPerfil | null>(null)
   const [isLoading, setIsLoading] = useState<boolean>(true)
+  const [mfaVerifiedSession, setMfaVerifiedSession] = useState<string | null>(() => {
+    return sessionStorage.getItem('gestec_mfa_verified_user') || null
+  })
 
   const setSelectedUnidadeId = (id: string | 'todas') => {
     setSelectedUnidadeIdState(id)
@@ -168,14 +183,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     })
   }, [])
 
-  const login = async (email: string, pass: string) => {
+  const login = async (email: string, pass: string): Promise<void> => {
     await pb.collection('users').authWithPassword(email, pass)
     setSimulatedPerfil(null)
+    sessionStorage.removeItem('gestec_mfa_verified_user')
+    setMfaVerifiedSession(null)
     await loadTenantAndUser()
   }
 
   const logout = () => {
     pb.authStore.clear()
+    sessionStorage.removeItem('gestec_mfa_verified_user')
+    setMfaVerifiedSession(null)
     setUser(null)
     setSimulatedPerfil(null)
   }
@@ -272,6 +291,237 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const selectedUnidade =
     selectedUnidadeId === 'todas' ? null : unidades.find((u) => u.id === selectedUnidadeId) || null
 
+  // Etapa 6 - Hardening: Regras de Bloqueio de Senha e MFA
+  // Perfis administrativos obrigatórios: superadmin e owner
+  const isPerfilAdminObrigatorioMfa = user?.perfil === 'superadmin' || user?.perfil === 'owner'
+
+  // 1. Precisa trocar senha no primeiro acesso?
+  const mustChangePassword = Boolean(user && user.precisa_trocar_senha)
+
+  // 2. Precisa configurar MFA obrigatório? (após trocar a senha, se for admin e ainda não tiver mfa_ativo)
+  const mustSetupMfa = Boolean(
+    user && !mustChangePassword && isPerfilAdminObrigatorioMfa && !user.mfa_ativo,
+  )
+
+  // 3. MFA pendente de verificação no login atual? (se tiver MFA ativo e ainda não verificou nesta sessão do browser)
+  const mfaPendingVerification = Boolean(
+    user && !mustChangePassword && user.mfa_ativo && mfaVerifiedSession !== user.id,
+  )
+
+  const refreshCurrentUser = async () => {
+    if (!user?.id) return
+    try {
+      const refreshed = await pb.collection('users').getOne<UserRecord>(user.id)
+      setUser(refreshed)
+    } catch (e) {
+      console.warn('Erro ao atualizar usuário atual:', e)
+    }
+  }
+
+  // Troca obrigatória de senha
+  const completePasswordChange = async (novaSenha: string) => {
+    if (!user) throw new Error('Nenhum usuário autenticado.')
+
+    // Validação de força
+    const check = validarForcaSenha(novaSenha)
+    if (!check.valida) {
+      throw new Error(`A senha não atende aos requisitos mínimos: ${check.erros.join(', ')}`)
+    }
+
+    if (novaSenha === 'Skip@Pass123' || novaSenha === 'Skip@Pass') {
+      throw new Error('A nova senha não pode ser idêntica à senha padrão de demonstração.')
+    }
+
+    const agoraIso = new Date().toISOString()
+
+    // Atualizar no PocketBase
+    await pb.collection('users').update(user.id, {
+      password: novaSenha,
+      passwordConfirm: novaSenha,
+      precisa_trocar_senha: false,
+      senha_modificada_em: agoraIso,
+    })
+
+    // Registrar evento de auditoria LGPD (append-only)
+    await registrarAuditoria({
+      tenantId: tenantId || 'sistema',
+      userEmail: user.email,
+      perfil: user.perfil || 'usuario',
+      acao: 'troca_senha_primeiro_acesso',
+      detalhes: `Senha redefinida com sucesso no primeiro acesso conforme política de hardening.`,
+    })
+
+    await refreshCurrentUser()
+  }
+
+  // Verificação TOTP no login ou com Recovery Code
+  const verifyMfaLogin = async (codigoOuRecovery: string): Promise<boolean> => {
+    if (!user) throw new Error('Nenhum usuário autenticado.')
+    const mfaConfig = user.mfa_config
+    if (!mfaConfig || !mfaConfig.secret) {
+      throw new Error('MFA não configurado nesta conta.')
+    }
+
+    const inputTrim = codigoOuRecovery.trim().toUpperCase()
+
+    // 1. Testar se é código TOTP de 6 dígitos
+    if (/^\d{6}$/.test(inputTrim)) {
+      const valido = await verifyTotpCode(mfaConfig.secret, inputTrim, 1)
+      if (valido) {
+        sessionStorage.setItem('gestec_mfa_verified_user', user.id)
+        setMfaVerifiedSession(user.id)
+
+        await registrarAuditoria({
+          tenantId: tenantId || 'sistema',
+          userEmail: user.email,
+          perfil: user.perfil || 'usuario',
+          acao: 'login_mfa_totp_sucesso',
+          detalhes: 'Segundo fator TOTP validado com sucesso.',
+        })
+        return true
+      }
+    }
+
+    // 2. Testar se é um dos Recovery Codes de uso único
+    const recoveryList = mfaConfig.recovery_codes || []
+    const recoveryIndex = recoveryList.findIndex(
+      (rc) =>
+        rc.replace(/[^A-Z0-9]/gi, '').toUpperCase() ===
+        inputTrim.replace(/[^A-Z0-9]/gi, '').toUpperCase(),
+    )
+
+    if (recoveryIndex !== -1) {
+      // Remover o recovery code usado (uso único!)
+      const updatedCodes = [...recoveryList]
+      updatedCodes.splice(recoveryIndex, 1)
+
+      await pb.collection('users').update(user.id, {
+        mfa_config: {
+          ...mfaConfig,
+          recovery_codes: updatedCodes,
+        },
+      })
+
+      sessionStorage.setItem('gestec_mfa_verified_user', user.id)
+      setMfaVerifiedSession(user.id)
+
+      await registrarAuditoria({
+        tenantId: tenantId || 'sistema',
+        userEmail: user.email,
+        perfil: user.perfil || 'usuario',
+        acao: 'uso_recovery_code_mfa',
+        detalhes: `Código de recuperação MFA de uso único consumido. Restantes: ${updatedCodes.length}.`,
+      })
+
+      await refreshCurrentUser()
+      return true
+    }
+
+    // Se chegou aqui, falha
+    await registrarAuditoria({
+      tenantId: tenantId || 'sistema',
+      userEmail: user.email,
+      perfil: user.perfil || 'usuario',
+      acao: 'login_mfa_falha',
+      detalhes:
+        'Tentativa inválida de validação do segundo fator de autenticação (TOTP ou Recovery).',
+    })
+
+    return false
+  }
+
+  // Ativar MFA
+  const enableMfaForUser = async (secret: string, recoveryCodes: string[]) => {
+    if (!user) throw new Error('Nenhum usuário autenticado.')
+    const agoraIso = new Date().toISOString()
+
+    await pb.collection('users').update(user.id, {
+      mfa_ativo: true,
+      mfa_config: {
+        secret,
+        activated_at: agoraIso,
+        recovery_codes: recoveryCodes,
+      },
+    })
+
+    sessionStorage.setItem('gestec_mfa_verified_user', user.id)
+    setMfaVerifiedSession(user.id)
+
+    await registrarAuditoria({
+      tenantId: tenantId || 'sistema',
+      userEmail: user.email,
+      perfil: user.perfil || 'usuario',
+      acao: 'ativacao_mfa_totp',
+      detalhes: `MFA TOTP ativado com ${recoveryCodes.length} recovery codes gerados.`,
+    })
+
+    await refreshCurrentUser()
+  }
+
+  // Desativar MFA
+  const disableMfaForUser = async (codigoOuAdminSecret?: string) => {
+    if (!user) throw new Error('Nenhum usuário autenticado.')
+
+    // Se o usuário tem MFA ativo, exige confirmação com código TOTP atual,
+    // a menos que seja um Super Admin realizando reset administrativo de conta bloqueada
+    if (user.mfa_ativo && user.mfa_config?.secret) {
+      const isSuperAdminExec = isSuperAdmin()
+      if (!isSuperAdminExec) {
+        if (!codigoOuAdminSecret) {
+          throw new Error('Informe o código TOTP de 6 dígitos atual para desativar o MFA.')
+        }
+        const valido = await verifyTotpCode(user.mfa_config.secret, codigoOuAdminSecret, 1)
+        if (!valido) {
+          throw new Error('Código TOTP incorreto. Desativação negada.')
+        }
+      }
+    }
+
+    await pb.collection('users').update(user.id, {
+      mfa_ativo: false,
+      mfa_config: null,
+    })
+
+    sessionStorage.removeItem('gestec_mfa_verified_user')
+    setMfaVerifiedSession(null)
+
+    await registrarAuditoria({
+      tenantId: tenantId || 'sistema',
+      userEmail: user.email,
+      perfil: user.perfil || 'usuario',
+      acao: 'desativacao_mfa',
+      detalhes: `MFA desativado pelo usuário (${user.email}).`,
+    })
+
+    await refreshCurrentUser()
+  }
+
+  // Regenerar Recovery Codes
+  const regenerateRecoveryCodes = async (): Promise<string[]> => {
+    if (!user || !user.mfa_config?.secret) {
+      throw new Error('MFA não está ativo nesta conta.')
+    }
+
+    const newCodes = generateRecoveryCodes(8)
+    await pb.collection('users').update(user.id, {
+      mfa_config: {
+        ...user.mfa_config,
+        recovery_codes: newCodes,
+      },
+    })
+
+    await registrarAuditoria({
+      tenantId: tenantId || 'sistema',
+      userEmail: user.email,
+      perfil: user.perfil || 'usuario',
+      acao: 'regeneracao_recovery_codes_mfa',
+      detalhes: 'Novos 8 códigos de recuperação gerados pelo usuário.',
+    })
+
+    await refreshCurrentUser()
+    return newCodes
+  }
+
   return (
     <AuthContext.Provider
       value={{
@@ -299,6 +549,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isOwner,
         toggleModuleEntitlement,
         refreshTenant,
+        mustChangePassword,
+        mustSetupMfa,
+        mfaPendingVerification,
+        completePasswordChange,
+        verifyMfaLogin,
+        enableMfaForUser,
+        disableMfaForUser,
+        regenerateRecoveryCodes,
+        refreshCurrentUser,
       }}
     >
       {children}

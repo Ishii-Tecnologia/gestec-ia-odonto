@@ -25,8 +25,10 @@ import {
   UserCheck,
   MessageSquare,
   FileText,
+  ShieldCheck,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { SegurancaMfaModal } from '@/components/SegurancaMfaModal'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -126,6 +128,7 @@ export const Layout: React.FC<{ children?: React.ReactNode }> = ({ children }) =
   const [collapsed, setCollapsed] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [pendenciasConfirmacao, setPendenciasConfirmacao] = useState<AgendamentoRecord[]>([])
+  const [mfaModalOpen, setMfaModalOpen] = useState(false)
 
   // Carregar pendências de confirmação para o sino de notificações (BL-005)
   useEffect(() => {
@@ -511,6 +514,27 @@ export const Layout: React.FC<{ children?: React.ReactNode }> = ({ children }) =
                     Gestão & Entitlements
                   </Link>
                 </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setMfaModalOpen(true)}
+                  className="text-xs cursor-pointer flex items-center justify-between"
+                >
+                  <div className="flex items-center">
+                    <ShieldCheck className="w-3.5 h-3.5 mr-2 text-cyan-600" />
+                    Segurança & MFA
+                  </div>
+                  {user?.mfa_ativo ? (
+                    <Badge
+                      variant="outline"
+                      className="text-[9px] px-1 py-0 h-4 bg-emerald-50 text-emerald-700 border-emerald-300"
+                    >
+                      MFA Ativo
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 text-slate-400">
+                      Inativo
+                    </Badge>
+                  )}
+                </DropdownMenuItem>
                 {isSuperAdmin() && (
                   <DropdownMenuItem asChild>
                     <Link to="/superadmin" className="text-xs cursor-pointer text-red-600">
@@ -531,6 +555,9 @@ export const Layout: React.FC<{ children?: React.ReactNode }> = ({ children }) =
             </DropdownMenu>
           </div>
         </header>
+
+        {/* Modal de Configuração de Segurança e MFA */}
+        <SegurancaMfaModal open={mfaModalOpen} onOpenChange={setMfaModalOpen} />
 
         {/* Page Content */}
         <main className="flex-1 p-4 md:p-6 max-w-7xl w-full mx-auto">{children || <Outlet />}</main>

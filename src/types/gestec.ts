@@ -104,6 +104,12 @@ export interface TenantRecord {
   updated?: string
 }
 
+export interface UserMfaConfig {
+  secret: string
+  activated_at: string
+  recovery_codes: string[]
+}
+
 export interface UserRecord {
   id: string
   email: string
@@ -113,6 +119,10 @@ export interface UserRecord {
   cro?: string
   todas_unidades?: boolean
   unidades_ids?: string[]
+  precisa_trocar_senha?: boolean
+  mfa_ativo?: boolean
+  mfa_config?: UserMfaConfig | null
+  senha_modificada_em?: string
   created?: string
   updated?: string
 }

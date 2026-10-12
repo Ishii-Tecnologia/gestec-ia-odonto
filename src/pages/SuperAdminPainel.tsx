@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useAuth } from '@/lib/pocketbase/auth-context'
 import pb from '@/lib/pocketbase/client'
-import { TenantRecord, PlanoTenant, TenantSituacao } from '@/types/gestec'
+import { TenantRecord, PlanoTenant, TenantSituacao, UserRecord } from '@/types/gestec'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -36,6 +36,9 @@ import {
   CheckCircle2,
   AlertCircle,
   Building,
+  ShieldCheck,
+  RotateCcw,
+  KeyRound,
 } from 'lucide-react'
 import { MODULOS_POR_PLANO } from '@/services/entitlements'
 import { validarCNPJ, formatarCNPJ } from '@/lib/validadores'
@@ -67,10 +70,13 @@ export default function SuperAdminPainel() {
   const [editNome, setEditNome] = useState('')
   const [editRazao, setEditRazao] = useState('')
   const [editCnpj, setEditCnpj] = useState('')
-  const [editPlano, setEditPlano] = useState<PlanoTenant>('suite-clinica')
+  const [editPlano, setEditPlano] = useState<PlanoTenant>('consultorio-essencial')
   const [editSituacao, setEditSituacao] = useState<TenantSituacao>('ativa')
   const [salvandoEdit, setSalvandoEdit] = useState(false)
 
+  // Usuários para gestão de Hardening / Reset de MFA
+  const [listaUsuarios, setListaUsuarios] = useState<UserRecord[]>([])
+  const [carregandoUsuarios, setCarregandoUsuarios] = useState(false)
   const carregarDadosPlataforma = async () => {
     setLoading(true)
     try {
@@ -91,6 +97,19 @@ export default function SuperAdminPainel() {
       setTotalAgendamentos(agRes.totalItems)
       setTotalPacientes(pacRes.totalItems)
       setTotalUnidades(unRes.totalItems)
+
+      // Carregar usuários para gestão de segurança
+      setCarregandoUsuarios(true)
+      try {
+        const uList = await pb.collection('users').getList<UserRecord>(1, 100, {
+          sort: 'name',
+        })
+        setListaUsuarios(uList.items)
+      } catch (e) {
+        console.warn('Erro ao carregar lista de usuários:', e)
+      } finally {
+        setCarregandoUsuarios(false)
+      }
     } catch (err) {
       console.warn('Erro ao carregar telemetria:', err)
     } finally {
@@ -101,6 +120,55 @@ export default function SuperAdminPainel() {
   useEffect(() => {
     carregarDadosPlataforma()
   }, [])
+
+  // Ação Administrativa: Reset de MFA para contas bloqueadas/exceções
+  const handleResetMfaUsuario = async (targetUser: UserRecord) => {
+    if (
+      !confirm(
+        `Deseja desativar o MFA da conta ${targetUser.email}? O usuário poderá acessar ou reconfigurar seu segundo fator.`,
+      )
+    ) {
+      return
+    }
+
+    try {
+      await pb.collection('users').update(targetUser.id, {
+        mfa_ativo: false,
+        mfa_config: null,
+      })
+      toast({
+        title: 'MFA Resetado',
+        description: `O MFA de ${targetUser.email} foi desativado pelo Super Admin.`,
+      })
+      carregarDadosPlataforma()
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao resetar MFA',
+        description: err.message,
+        variant: 'destructive',
+      })
+    }
+  }
+
+  // Ação Administrativa: Forçar troca de senha no próximo acesso
+  const handleForcarTrocaSenha = async (targetUser: UserRecord) => {
+    try {
+      await pb.collection('users').update(targetUser.id, {
+        precisa_trocar_senha: true,
+      })
+      toast({
+        title: 'Troca de Senha Forçada',
+        description: `O usuário ${targetUser.email} será obrigado a definir nova senha no próximo login.`,
+      })
+      carregarDadosPlataforma()
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao forçar troca',
+        description: err.message,
+        variant: 'destructive',
+      })
+    }
+  }
 
   // Verificar se CNPJ já existe na plataforma
   const checkCnpjExistente = async (
@@ -518,6 +586,127 @@ export default function SuperAdminPainel() {
           </CardContent>
         </Card>
       </div>
+
+      {/* SEÇÃO ETAPA 6 - HARDENING: Governança de Credenciais & MFA dos Usuários */}
+      <Card className="border-slate-200 shadow-sm">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base text-slate-800 flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-cyan-700" />
+                Hardening de Acessos: Credenciais & MFA por Usuário
+              </CardTitle>
+              <CardDescription className="text-xs text-slate-500">
+                Auditoria e controle administrativo de troca obrigatória de senha e segundo fator
+                (TOTP RFC 6238).
+              </CardDescription>
+            </div>
+            <Badge variant="outline" className="text-xs bg-cyan-50 text-[#0E7490] border-cyan-200">
+              Etapa 6 — Hardening
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="divide-y divide-slate-100">
+            {listaUsuarios.map((u) => {
+              const isAdmin = u.perfil === 'superadmin' || u.perfil === 'owner'
+              const temMfa = Boolean(u.mfa_ativo)
+              const precisaTrocar = Boolean(u.precisa_trocar_senha)
+
+              return (
+                <div
+                  key={u.id}
+                  className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50 transition-colors"
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-xs text-slate-900">
+                        {u.name || u.email}
+                      </span>
+                      <Badge variant="secondary" className="text-[10px] uppercase font-mono">
+                        {u.perfil || 'usuário'}
+                      </Badge>
+                      {isAdmin && (
+                        <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px]">
+                          MFA Obrigatório
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="text-xs text-slate-500 flex flex-wrap items-center gap-3">
+                      <span>
+                        Email: <strong className="font-mono text-slate-700">{u.email}</strong>
+                      </span>
+                      <span>
+                        • Senha Inicial:{' '}
+                        {precisaTrocar ? (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] bg-amber-50 text-amber-700 border-amber-200"
+                          >
+                            Pendente de Troca
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-200"
+                          >
+                            Atualizada
+                          </Badge>
+                        )}
+                      </span>
+                      <span>
+                        • Segundo Fator:{' '}
+                        {temMfa ? (
+                          <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px]">
+                            MFA Ativo
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px] text-slate-400">
+                            Não Configurado
+                          </Badge>
+                        )}
+                      </span>
+                      {u.mfa_config?.recovery_codes && (
+                        <span className="text-[11px] text-slate-400">
+                          ({u.mfa_config.recovery_codes.length} recovery codes)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {temMfa && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleResetMfaUsuario(u)}
+                        className="text-xs h-8 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                        title="Desativa o MFA em caso de perda de dispositivo"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                        Resetar MFA
+                      </Button>
+                    )}
+
+                    {!precisaTrocar && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleForcarTrocaSenha(u)}
+                        className="text-xs h-8 text-slate-600 hover:text-amber-700 hover:bg-amber-50"
+                        title="Forçar troca de senha no próximo login"
+                      >
+                        <KeyRound className="w-3.5 h-3.5 mr-1" />
+                        Forçar Troca
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Lista de Tenants e Ciclo de Vida */}
       <Card className="border-slate-200 shadow-sm">
