@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import pb from './client'
+import { getErrorMessage } from './errors'
 import { TenantRecord, UserPerfil, UserRecord, ModuloId, UnidadeRecord } from '@/types/gestec'
 import { validarDependenciasModulo } from '@/services/entitlements'
 import { registrarAuditoria } from './auditoria'
@@ -334,13 +335,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const agoraIso = new Date().toISOString()
 
-    // Atualizar no PocketBase
-    await pb.collection('users').update(user.id, {
-      password: novaSenha,
-      passwordConfirm: novaSenha,
-      precisa_trocar_senha: false,
-      senha_modificada_em: agoraIso,
-    })
+    // Etapa 6 (hardening): a troca de senha do 1º acesso é feita por um endpoint
+    // próprio no servidor (veja pocketbase/hooks/trocar-senha.js). Chamá-lo com o
+    // token da sessão evita o 404 "The requested resource wasn't found." que o
+    // PocketBase devolve quando a updateRule da coleção users rejeita a
+    // requisição PATCH direta feita pelo SDK.
+    try {
+      await pb.send('/backend/v1/gestec/trocar-senha', {
+        method: 'POST',
+        body: { nova_senha: novaSenha },
+      })
+    } catch (err: any) {
+      // Nunca mostrar erro técnico cru para o usuário (é leigo).
+      console.warn('Falha ao trocar a senha no 1º acesso:', err?.status, err?.message)
+      throw new Error(
+        'Não foi possível salvar sua nova senha agora. Verifique sua conexão e tente novamente em alguns segundos.',
+      )
+    }
 
     // Registrar evento de auditoria LGPD (append-only)
     await registrarAuditoria({
