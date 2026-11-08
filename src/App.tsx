@@ -4,6 +4,8 @@ import { Toaster } from '@/components/ui/toaster'
 import { Toaster as Sonner } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { AuthProvider } from '@/lib/pocketbase/auth-context'
+import { useSessaoExpiracao } from '@/hooks/use-sessao-expiracao'
+import { AvisoSessaoModal } from '@/components/AvisoSessaoModal'
 
 import Index from './pages/Index'
 import NotFound from './pages/NotFound'
@@ -26,12 +28,17 @@ import AgendamentoPublico from './pages/AgendamentoPublico'
 import OwnerPainel from './pages/OwnerPainel'
 import SuperAdminPainel from './pages/SuperAdminPainel'
 
-const App = () => (
-  <BrowserRouter>
-    <AuthProvider>
+const AppEncapsulado = () => {
+  // Etapa 6 (Hardening): expiração de sessão por inatividade (30 min / 2 min de
+  // aviso / máximo absoluto de 12 h) — hook montado uma vez, no topo da árvore.
+  useSessaoExpiracao()
+
+  return (
+    <>
       <TooltipProvider>
         <Toaster />
         <Sonner />
+        <AvisoSessaoModal />
         <Routes>
           {/* Rotas Públicas */}
           <Route path="/login" element={<Login />} />
@@ -87,6 +94,14 @@ const App = () => (
           <Route path="*" element={<NotFound />} />
         </Routes>
       </TooltipProvider>
+    </>
+  )
+}
+
+const App = () => (
+  <BrowserRouter>
+    <AuthProvider>
+      <AppEncapsulado />
     </AuthProvider>
   </BrowserRouter>
 )

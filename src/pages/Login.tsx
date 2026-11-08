@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useAuth } from '@/lib/pocketbase/auth-context'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -15,7 +15,35 @@ import {
   UserCircle2,
   Server,
   Sparkles,
+  AlertCircle,
 } from 'lucide-react'
+
+const MENSAGEM_SESSAO_EXPIRADA_KEY = 'gestec_sessao_mensagem'
+
+/**
+ * Traduz erros de autenticação para linguagem leiga (Etapa 6 — Hardening).
+ * Nunca exibe erro técnico cru: 429 (bloqueio por força bruta, resposta do
+ * hook login-bloqueio com o tempo restante), 400 (senha errada), rede, etc.
+ */
+const traduzirErroLogin = (err: unknown): string => {
+  const status = (err as { status?: number })?.status
+  const response = (err as { response?: { message?: string; data?: Record<string, unknown> } })
+    ?.response
+
+  // Bloqueio por tentativas incorretas (hook login-bloqueio, código 429)
+  if (status === 429) {
+    const msgServidor = response?.message || ''
+    return msgServidor || 'Conta temporariamente bloqueada por tentativas incorretas.'
+  }
+
+  // Credenciais inválidas
+  if (status === 400 || status === 401 || status === 403) {
+    return 'E-mail ou senha inválidos. Verifique as credenciais e tente novamente.'
+  }
+
+  // Servidor indisponível / erro inesperado
+  return 'Não foi possível entrar agora. Verifique sua conexão e tente novamente em instantes.'
+}
 
 export default function Login() {
   const { login, isLoading } = useAuth()
@@ -25,6 +53,18 @@ export default function Login() {
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [mensagemSessao, setMensagemSessao] = useState('')
+
+  // Aviso de sessão expirada (Etapa 6): exibido uma vez ao chegar aqui
+  useEffect(() => {
+    const msg = sessionStorage.getItem(MENSAGEM_SESSAO_EXPIRADA_KEY)
+    if (msg) {
+      sessionStorage.removeItem(MENSAGEM_SESSAO_EXPIRADA_KEY)
+      setMensagemSessao(msg)
+      const t = window.setTimeout(() => setMensagemSessao(''), 15000)
+      return () => window.clearTimeout(t)
+    }
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -45,11 +85,10 @@ export default function Login() {
         description: 'Autenticação realizada com sucesso.',
       })
       navigate('/')
-    } catch (err: any) {
+    } catch (err) {
       toast({
         title: 'Falha no login',
-        description:
-          'E-mail ou senha inválidos. Verifique as credenciais ou use os botões de demonstração rápida.',
+        description: traduzirErroLogin(err),
         variant: 'destructive',
       })
     } finally {
@@ -68,11 +107,11 @@ export default function Login() {
         description: `Conectado como ${demoEmail}`,
       })
       navigate(demoEmail === 'superadmin@gestecodonto.com.br' ? '/superadmin' : '/')
-    } catch (err: any) {
+    } catch (err) {
       toast({
-        title: 'Credencial já alterada',
-        description:
-          'A senha inicial padrão já foi substituída nesta conta pelo fluxo de hardening. Digite sua nova senha no campo acima.',
+        title: 'Não foi possível entrar com esta conta',
+        description: traduzirErroLogin(err),
+        variant: 'destructive',
       })
       setSenha('')
     } finally {
@@ -110,6 +149,15 @@ export default function Login() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {mensagemSessao && (
+            <div
+              role="alert"
+              className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs"
+            >
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{mensagemSessao}</span>
+            </div>
+          )}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="email" className="text-xs font-medium text-slate-700">

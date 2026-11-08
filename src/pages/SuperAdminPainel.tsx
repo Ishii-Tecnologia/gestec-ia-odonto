@@ -42,6 +42,7 @@ import {
 } from 'lucide-react'
 import { MODULOS_POR_PLANO } from '@/services/entitlements'
 import { validarCNPJ, formatarCNPJ } from '@/lib/validadores'
+import { PainelBloqueios } from '@/components/PainelBloqueios'
 
 export default function SuperAdminPainel() {
   const { switchTenant } = useAuth()
@@ -707,6 +708,9 @@ export default function SuperAdminPainel() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Etapa 6 - Bloqueios de login por força bruta (listar / liberar) */}
+      <PainelBloqueios />
 
       {/* Lista de Tenants e Ciclo de Vida */}
       <Card className="border-slate-200 shadow-sm">
