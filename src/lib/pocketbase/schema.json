@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-08T20:04:21.716Z",
+  "generatedAt": "2026-11-08T21:24:03.666Z",
   "collections": [
     {
       "name": "users",
@@ -1744,6 +1744,62 @@
         "CREATE INDEX idx_salas_unidade ON salas (unidade_id, ordem ASC)",
         "CREATE INDEX idx_salas_tenant ON salas (tenant_id)"
       ]
+    },
+    {
+      "name": "bloqueios_login",
+      "type": "base",
+      "apiRules": {
+        "list": null,
+        "view": null,
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "fields": [
+        {
+          "name": "email",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "tentativas_falhas",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "primeira_tentativa_em",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ultima_tentativa_em",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "bloqueado_ate",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "bloqueios_total",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ips_tentantes",
+          "type": "text",
+          "required": false,
+          "system": false
+        }
+      ],
+      "indexes": ["CREATE UNIQUE INDEX `idx_bloqueios_login_email` ON `bloqueios_login` (email)"]
     }
   ]
 }
