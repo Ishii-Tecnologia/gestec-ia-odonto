@@ -142,7 +142,8 @@ onRecordCreateRequest((e) => {
 }, 'movimentacoes_estoque')
 
 // ---------- Auditoria LGPD (append-only) ----------
-onRecordAfterCreateRequest((e) => {
+onRecordCreateRequest((e) => {
+  const res = e.next()
   try {
     const audit = new Record(e.app.findCollectionByNameOrId('auditoria_acesso'))
     audit.set('tenant_id', e.record.get('tenant_id') || 'sistema')
@@ -168,10 +169,11 @@ onRecordAfterCreateRequest((e) => {
   } catch (err) {
     console.warn('Falha ao auditar movimentação de estoque:', err)
   }
-  e.next()
+  return res
 }, 'movimentacoes_estoque')
 
-onRecordAfterCreateRequest((e) => {
+onRecordCreateRequest((e) => {
+  const res = e.next()
   try {
     const audit = new Record(e.app.findCollectionByNameOrId('auditoria_acesso'))
     audit.set('tenant_id', e.record.get('tenant_id') || 'sistema')
@@ -196,10 +198,11 @@ onRecordAfterCreateRequest((e) => {
   } catch (err) {
     console.warn('Falha ao auditar entrada de lote:', err)
   }
-  e.next()
+  return res
 }, 'lotes_estoque')
 
-onRecordAfterCreateRequest((e) => {
+onRecordCreateRequest((e) => {
+  const res = e.next()
   try {
     const audit = new Record(e.app.findCollectionByNameOrId('auditoria_acesso'))
     audit.set('tenant_id', e.record.get('tenant_id') || 'sistema')
@@ -224,10 +227,11 @@ onRecordAfterCreateRequest((e) => {
   } catch (err) {
     console.warn('Falha ao auditar cadastro de insumo:', err)
   }
-  e.next()
+  return res
 }, 'insumos')
 
-onRecordAfterUpdateRequest((e) => {
+onRecordUpdateRequest((e) => {
+  const res = e.next()
   try {
     const audit = new Record(e.app.findCollectionByNameOrId('auditoria_acesso'))
     audit.set('tenant_id', e.record.get('tenant_id') || 'sistema')
@@ -246,5 +250,5 @@ onRecordAfterUpdateRequest((e) => {
   } catch (err) {
     console.warn('Falha ao auditar edição de insumo:', err)
   }
-  e.next()
+  return res
 }, 'insumos')

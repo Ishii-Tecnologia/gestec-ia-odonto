@@ -26,6 +26,7 @@ import {
   MessageSquare,
   FileText,
   ShieldCheck,
+  Package,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SegurancaMfaModal } from '@/components/SegurancaMfaModal'
@@ -82,6 +83,12 @@ const NAV_ITEMS: NavItem[] = [
     path: '/documentos',
     icon: FileText,
     modulo: 'documentos',
+  },
+  {
+    name: 'Estoque & Insumos',
+    path: '/estoque',
+    icon: Package,
+    modulo: 'estoque',
   },
   {
     name: 'Comunicação & Fila',

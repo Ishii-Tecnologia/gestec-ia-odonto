@@ -566,3 +566,73 @@ export interface AuditoriaAcessoRecord {
   ip?: string
   timestamp: string
 }
+
+// ============================================================================
+// Controle de Estoque & Insumos (BL-025)
+// ============================================================================
+
+export type CategoriaInsumo =
+  | 'anestesicos'
+  | 'resinas'
+  | 'descartaveis'
+  | 'epi'
+  | 'instrumentais'
+  | 'moldagem'
+  | 'limpeza'
+  | 'outros'
+
+export type TipoMovimentacaoEstoque = 'entrada' | 'consumo' | 'ajuste' | 'perda'
+
+export interface InsumoRecord {
+  id: string
+  tenant_id: string
+  unidade_id: string
+  nome: string
+  categoria: CategoriaInsumo
+  unidade_medida: string
+  estoque_minimo?: number
+  custo_referencia?: number
+  fornecedor?: string
+  ativo?: boolean
+  created?: string
+  updated?: string
+}
+
+export interface LoteEstoqueRecord {
+  id: string
+  tenant_id: string
+  unidade_id: string
+  insumo_id: string
+  quantidade: number
+  custo_unitario?: number
+  validade?: string
+  lote?: string
+  fabricante?: string
+  data_entrada?: string
+  quantidade_restante?: number
+  created?: string
+  updated?: string
+  expand?: {
+    insumo_id?: InsumoRecord
+  }
+}
+
+export interface MovimentacaoEstoqueRecord {
+  id: string
+  tenant_id: string
+  unidade_id: string
+  insumo_id: string
+  tipo: TipoMovimentacaoEstoque
+  quantidade: number
+  motivo?: string
+  atendimento_id?: string
+  paciente_id?: string
+  profissional?: string
+  lote_id?: string
+  created?: string
+  updated?: string
+  expand?: {
+    insumo_id?: InsumoRecord
+    lote_id?: LoteEstoqueRecord
+  }
+}

@@ -1,31 +1,31 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import pb from '@/lib/pocketbase/client'
 import { useAuth } from '@/lib/pocketbase/auth-context'
 import { registrarAuditoria } from '@/lib/pocketbase/auditoria'
 import { getErrorMessage } from '@/lib/pocketbase/errors'
+import { ModuloGate } from '@/components/ModuloGate'
 import {
   CATEGORIAS_INSUMO,
   LABEL_CATEGORIA,
   LABEL_TIPO_MOV,
   carregarEstoque,
-  calcularSaldo,
-  classificarInsumo,
   podeGerenciarEstoque,
   situacaoValidade,
-  filtrarAlertas,
   type InsumoComSaldo,
 } from '@/services/estoque'
 import type {
+  CategoriaInsumo,
   InsumoRecord,
   LoteEstoqueRecord,
   MovimentacaoEstoqueRecord,
+  TipoMovimentacaoEstoque,
 } from '@/types/gestec'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Dialog,
@@ -44,15 +44,19 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { toast } from '@/hooks/use-toast'
-import { cn } from '@/lib/utils'
 import {
   AlertTriangle,
   CalendarClock,
+  CheckCircle2,
   Package,
   PackagePlus,
   Plus,
+  RefreshCw,
   Search,
   TrendingDown,
+  Warehouse,
+  History,
+  ShieldAlert,
 } from 'lucide-react'
 
 type AbaId = 'insumos' | 'movimentacoes' | 'entradas' | 'consumo'
@@ -84,795 +88,1536 @@ function fmtMoney(v: number): string {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
-/** Estoque & Insumos (BL-025) — visão da unidade selecionada no header. */
-export default function EstoquePage() {
-  const { user, tenant, unidadeSelecionada } = useAuth()
+export function EstoquePage() {
+  const { user, tenant, perfil, selectedUnidade, selectedUnidadeId, unidades } = useAuth()
 
-  const podeGerenciar = podeGerenciarEstoque(user?.perfil)
-  const isRecepcao = user?.perfil === 'recepcao'
+  // Se o seletor global estiver em "todas", pegamos a primeira unidade disponível ou vazia
+  const unidadeAtivaId =
+    selectedUnidadeId && selectedUnidadeId !== 'todas'
+      ? selectedUnidadeId
+      : unidades.length > 0
+        ? unidades[0].id
+        : ''
+
+  const unidadeAtivaNome =
+    selectedUnidade?.nome || unidades.find((u) => u.id === unidadeAtivaId)?.nome || 'Unidade Matriz'
+
+  const podeGerenciar = podeGerenciarEstoque(perfil)
+  const isRecepcao = perfil === 'recepcao'
+  const podeConsumir = !isRecepcao
 
   const [aba, setAba] = useState<AbaId>('insumos')
   const [carregando, setCarregando] = useState(true)
+  const [salvando, setSalvando] = useState(false)
   const [itens, setItens] = useState<InsumoComSaldo[]>([])
   const [movs, setMovs] = useState<MovimentacaoEstoqueRecord[]>([])
   const [agendamentos, setAgendamentos] = useState<AgendamentoOption[]>([])
 
-  // ---- busca na lista de insumos ----
+  // Filtros
   const [busca, setBusca] = useState('')
+  const [filtroCategoria, setFiltroCategoria] = useState<string>('todas')
+  const [filtroAlerta, setFiltroAlerta] = useState<'todos' | 'baixo' | 'validade'>('todos')
+  const [filtroTipoMov, setFiltroTipoMov] = useState<string>('todos')
 
-  // ---- dialog insumo (cadastro/edição) ----
-  const [dialogInsumo, setDialogInsumo] = useState(false)
-  const [editando, setEditando] = useState<InsumoRecord | null>(null)
-  const [formInsumo, setFormInsumo] = useState({
+  // Modais
+  const [modalInsumoOpen, setModalInsumoOpen] = useState(false)
+  const [insumoEdicao, setInsumoEdicao] = useState<InsumoRecord | null>(null)
+  const [formInsumo, setFormInsumo] = useState<{
+    nome: string
+    categoria: CategoriaInsumo
+    unidade_medida: string
+    estoque_minimo: number
+    custo_referencia: number
+    fornecedor: string
+    ativo: boolean
+  }>({
     nome: '',
-    categoria: 'descartaveis',
-    unidade_medida: 'un',
-    estoque_minimo: '10',
-    custo_referencia: '0',
+    categoria: 'outros',
+    unidade_medida: 'unidade',
+    estoque_minimo: 5,
+    custo_referencia: 0,
     fornecedor: '',
+    ativo: true,
   })
 
-  // ---- dialog entrada de lote ----
-  const [dialogEntrada, setDialogEntrada] = useState(false)
-  const [formEntrada, setFormEntrada] = useState({
+  // Formulário de Entrada de Lote
+  const [formEntrada, setFormEntrada] = useState<{
+    insumo_id: string
+    quantidade: number | ''
+    custo_unitario: number | ''
+    validade: string
+    lote: string
+    fabricante: string
+    data_entrada: string
+  }>({
     insumo_id: '',
     quantidade: '',
     custo_unitario: '',
     validade: '',
-    fabricante_lote: '',
+    lote: '',
+    fabricante: '',
     data_entrada: hojeIso(),
   })
 
-  // ---- dialog consumo (manual ou vinculado a atendimento) ----
-  const [dialogConsumo, setDialogConsumo] = useState(false)
-  const [formConsumo, setFormConsumo] = useState({
+  // Formulário de Consumo Clínico / Perda / Ajuste
+  const [formConsumo, setFormConsumo] = useState<{
+    insumo_id: string
+    tipo: TipoMovimentacaoEstoque
+    quantidade: number | ''
+    motivo: string
+    atendimento_id: string
+    profissional: string
+  }>({
     insumo_id: '',
+    tipo: 'consumo',
     quantidade: '',
     motivo: '',
-    atendimento_id: 'none',
-    paciente_id: '',
+    atendimento_id: '',
+    profissional: user?.name || '',
   })
 
-  // ---- dialog ajuste/perda ----
-  const [dialogAjuste, setDialogAjuste] = useState(false)
-  const [formAjuste, setFormAjuste] = useState({ tipo: 'ajuste', quantidade: '', motivo: '' })
-
-  // ---- relatório de custos (só gestores) ----
-  const [relatorio, setRelatorio] = useState(false)
-
-  const [insumoAlerta, setInsumoAlerta] = useState<InsumoComSaldo | null>(null)
-
-  const carregar = useCallback(async () => {
-    if (!unidadeSelecionada) return
-    setCarregando(true)
-    try {
-      const [itens, movs, ags] = await Promise.all([
-        carregarEstoque(unidadeSelecionada.id),
-        pb.collection('movimentacoes_estoque').getFullList<MovimentacaoEstoqueRecord>({
-          filter: `unidade_id = '${unidadeSelecionada.id}'`,
-          sort: '-created',
-          requestKey: 'estoque-hist',
-        }),
-        pb
-          .collection('agendamentos')
-          .getFullList<AgendamentoOption & { paciente_id?: string }>({
-            filter: `unidade_id = '${unidadeSelecionada.id}' && status != 'cancelado' && status != 'falta'`,
-            sort: '-data_inicio',
-            requestKey: 'estoque-ags',
-          }),
-      ])
-
-      setItens(itens)
-      setMovs(movs)
-
-      const nomePorId = new Map<string, string>()
-      try {
-        const pacs = await pb.collection('pacientes').getFullList<{ id: string; nome: string }>({
-          filter: `unidade_id = '${unidadeSelecionada.id}'`,
-          requestKey: 'estoque-pacs',
-        })
-        for (const p of pacs) nomePorId.set(p.id, p.nome)
-      } catch {
-        /* pacientes pode estar bloqueado — consumo segue sem nome */
-      }
-      setAgendamentos(
-        ags.slice(0, 50).map((a) => {
-          const pid = (a as any).paciente_id || ''
-          return {
-            id: ags.id,
-            label: `${(a as any).procedimento || 'Atendimento'} — ${nomePorId.get(pid) || 'Paciente'} — ${fmtData((a as any).data_inicio)}`,
-            pacienteId: pid,
-            pacienteNome: nomePorId.get(pid) || 'Paciente',
-          }
-        }),
-      )
-    } catch (err) {
-      toast({ title: 'Erro', description: getErrorMessage(err), variant: 'destructive' })
-    } finally {
-      setCarregando Kết thúc false
-    }
-  }, [unidadeSelecionada])
-
-  // Carrega uma vez por unidade
-  useEffect(() => {
-    void carregar()
-  }, [carregar])
-  const insumosFiltrados = useMemo(() => {
-    const t = busca.trim().toLowerCase()
-    if (!t) return itens
-    return itens.filter(
-      (i) =>
-        i.insumo.nome.toLowerCase().includes(t) ||
-        (LABEL_CATEGORIA[i.insumo.categoria] || i.insumo.categoria).toLowerCase().includes(t),
-    )
-  }, [itens, busca])
-
-  const alertas = useMemo(() => filtrarAlertas(itens), [itens])
-
-  const valorTotalEstoque = useMemo(
-    () => (podeGerenciar ? itens.reduce((acc, i) => acc + i.valorTotal,  cards 0) : 0),
-    [itens, podeGerenciar],
-  )
-
-  const consumoPorCategoria = useMemo(() => {
-    if (!podeGerenciar) return []
-    const inicio = new Date()
-    inicio.setMonth(inicio.getMonth() - 3)
-    const inicioIso = inicio.toISOString().slice(0, 10)
-    const mapa = new Map<string, number>()
-    for (const m of movs) {
-      if (m.tipo !== 'consumo') continue
-      const d = String(m.created || '').slice(0, 10)
-      if (d < inicioIso) continue
-      const insumo = itens.find((i) => i.insumo.id === m.insumo_id)
-      const cat = insumo?.insumo.categoria || 'outros'
-      const custo =
-        Number(insumo?.insumo.custo_referencia) || 0
-      mapa.set(cat, (mapa.get(cat) || 0) + qtd * custo)
-    }
-    return [...mapa.entries()].sort((a, b) => b[1] - a[1])
-  }, [movs, itens, podeGerenciar])
-
-  // ---------- ações ----------
-  const salvarInsumo = async () => {
-    if (!unidadeSelecionada || !tenant?.id) return
-    if (!formInsumo.nome.trim()) {
-      toast({ title: 'Atenção', description: 'Informe o nome do insumo.', variant: 'destructive' })
+  // Carregar dados
+  const carregarDados = useCallback(async () => {
+    if (!tenant?.id || !unidadeAtivaId) {
+      setCarregando(false)
       return
     }
+    setCarregando(true)
     try {
-      const data: Record<string, any> = {
-        tenant_id: tenant.id,
-        unidade_id: unidadeSelecionada.id,
-        nome: formInsumo.nome.trim(),
-        categoria: formInsumo.categoria,
-        unidade_medida: formInsumo.unidade_medida || 'un',
-        estoque_minimo: Number(formInsumo.estoque_minimo) || 0,
-        custo_referencia: Number(formInsumo.custo_referencia) || 0,
-        fornecedor: formInsumo.fornecedor.trim(),
+      // 1. Insumos com saldo consolidado
+      const listaComSaldo = await carregarEstoque(unidadeAtivaId)
+      setItens(listaComSaldo)
+
+      // 2. Movimentações recentes
+      const movsRes = await pb
+        .collection('movimentacoes_estoque')
+        .getList<MovimentacaoEstoqueRecord>(1, 100, {
+          filter: `unidade_id = '${unidadeAtivaId}'`,
+          sort: '-created',
+        })
+      setMovs(movsRes.items)
+
+      // 3. Agendamentos recentes da unidade para facilitar vinculação de consumo
+      try {
+        const agRes = await pb.collection('agendamentos').getList(1, 40, {
+          filter: `unidade_id = '${unidadeAtivaId}'`,
+          sort: '-data_inicio',
+          expand: 'paciente_id',
+        })
+        const opts: AgendamentoOption[] = agRes.items.map((ag: any) => ({
+          id: ag.id,
+          label: `${fmtDataHora(ag.data_inicio)} — ${ag.expand?.paciente_id?.nome || 'Paciente'} (${ag.procedimento || 'Atendimento'})`,
+          pacienteId: ag.paciente_id || '',
+          pacienteNome: ag.expand?.paciente_id?.nome || '',
+        }))
+        setAgendamentos(opts)
+      } catch (_) {
+        setAgendamentos([])
+      }
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao carregar estoque',
+        description:
+          getErrorMessage(err) || 'Não foi possível carregar os dados de estoque da unidade.',
+        variant: 'destructive',
+      })
+    } finally {
+      setCarregando(false)
+    }
+  }, [tenant?.id, unidadeAtivaId])
+
+  useEffect(() => {
+    carregarDados()
+  }, [carregarDados])
+
+  // Métricas
+  const metricas = useMemo(() => {
+    let totalInsumos = itens.length
+    let totalBaixo = 0
+    let totalVencidosOuProximos = 0
+    let valorTotalEstoque = 0
+
+    for (const item of itens) {
+      if (item.situacaoEstoque === 'baixo' || item.situacaoEstoque === 'sem_estoque') {
+        totalBaixo++
+      }
+      if (item.piorValidade.status === 'vencido' || item.piorValidade.status === 'proximo') {
+        totalVencidosOuProximos++
+      }
+      valorTotalEstoque += item.valorTotal || 0
+    }
+
+    return {
+      totalInsumos,
+      totalBaixo,
+      totalVencidosOuProximos,
+      valorTotalEstoque,
+    }
+  }, [itens])
+
+  // Insumos filtrados
+  const insumosFiltrados = useMemo(() => {
+    return itens.filter((i) => {
+      if (busca) {
+        const termo = busca.toLowerCase()
+        const nomeMatch = i.insumo.nome.toLowerCase().includes(termo)
+        const fornMatch = (i.insumo.fornecedor || '').toLowerCase().includes(termo)
+        if (!nomeMatch && !fornMatch) return false
+      }
+      if (filtroCategoria !== 'todas' && i.insumo.categoria !== filtroCategoria) {
+        return false
+      }
+      if (filtroAlerta === 'baixo' && i.situacaoEstoque === 'ok') {
+        return false
+      }
+      if (
+        filtroAlerta === 'validade' &&
+        i.piorValidade.status !== 'vencido' &&
+        i.piorValidade.status !== 'proximo'
+      ) {
+        return false
+      }
+      return true
+    })
+  }, [itens, busca, filtroCategoria, filtroAlerta])
+
+  // Movimentações filtradas
+  const movimentacoesFiltradas = useMemo(() => {
+    const mapaInsumo = new Map(itens.map((i) => [i.insumo.id, i.insumo]))
+    return movs.filter((m) => {
+      if (filtroTipoMov !== 'todos' && m.tipo !== filtroTipoMov) {
+        return false
+      }
+      if (busca) {
+        const termo = busca.toLowerCase()
+        const ins = mapaInsumo.get(m.insumo_id)
+        const nomeInsumo = ins ? ins.nome.toLowerCase() : ''
+        const motivo = (m.motivo || '').toLowerCase()
+        const prof = (m.profissional || '').toLowerCase()
+        if (!nomeInsumo.includes(termo) && !motivo.includes(termo) && !prof.includes(termo)) {
+          return false
+        }
+      }
+      return true
+    })
+  }, [movs, filtroTipoMov, busca, itens])
+
+  // Abrir modal de cadastro/edição de insumo
+  const abrirModalInsumo = (insumo?: InsumoRecord) => {
+    if (insumo) {
+      setInsumoEdicao(insumo)
+      setFormInsumo({
+        nome: insumo.nome,
+        categoria: insumo.categoria,
+        unidade_medida: insumo.unidade_medida,
+        estoque_minimo: Number(insumo.estoque_minimo) || 0,
+        custo_referencia: Number(insumo.custo_referencia) || 0,
+        fornecedor: insumo.fornecedor || '',
+        ativo: insumo.ativo ?? true,
+      })
+    } else {
+      setInsumoEdicao(null)
+      setFormInsumo({
+        nome: '',
+        categoria: 'outros',
+        unidade_medida: 'unidade',
+        estoque_minimo: 5,
+        custo_referencia: 0,
+        fornecedor: '',
         ativo: true,
-      }
-      if (editando) {
-        await pb.collection('insumos').update(editando.id, data)
+      })
+    }
+    setModalInsumoOpen(true)
+  }
+
+  // Salvar cadastro de insumo
+  const salvarInsumo = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!formInsumo.nome.trim()) {
+      toast({
+        title: 'Nome obrigatório',
+        description: 'Informe o nome do insumo odontológico.',
+        variant: 'destructive',
+      })
+      return
+    }
+    if (!tenant?.id || !unidadeAtivaId) return
+
+    setSalvando(true)
+    try {
+      if (insumoEdicao) {
+        await pb.collection('insumos').update(insumoEdicao.id, {
+          nome: formInsumo.nome.trim(),
+          categoria: formInsumo.categoria,
+          unidade_medida: formInsumo.unidade_medida.trim(),
+          estoque_minimo: Number(formInsumo.estoque_minimo) || 0,
+          custo_referencia: Number(formInsumo.custo_referencia) || 0,
+          fornecedor: formInsumo.fornecedor.trim(),
+          ativo: formInsumo.ativo,
+        })
+        await registrarAuditoria({
+          tenantId: tenant.id,
+          userEmail: user?.email,
+          perfil,
+          acao: 'insumo_atualizado',
+          detalhes: `Insumo atualizado: ${formInsumo.nome}`,
+        })
+        toast({
+          title: 'Insumo atualizado!',
+          description: `Os dados de "${formInsumo.nome}" foram atualizados com sucesso.`,
+        })
       } else {
-        await pb.collection('insumos').create(data)
+        await pb.collection('insumos').create({
+          tenant_id: tenant.id,
+          unidade_id: unidadeAtivaId,
+          nome: formInsumo.nome.trim(),
+          categoria: formInsumo.categoria,
+          unidade_medida: formInsumo.unidade_medida.trim() || 'unidade',
+          estoque_minimo: Number(formInsumo.estoque_minimo) || 0,
+          custo_referencia: Number(formInsumo.custo_referencia) || 0,
+          fornecedor: formInsumo.fornecedor.trim(),
+          ativo: formInsumo.ativo,
+        })
+        await registrarAuditoria({
+          tenantId: tenant.id,
+          userEmail: user?.email,
+          perfil,
+          acao: 'insumo_cadastrado',
+          detalhes: `Novo insumo cadastrado: ${formInsumo.nome}`,
+        })
+        toast({
+          title: 'Insumo cadastrado!',
+          description: `"${formInsumo.nome}" foi cadastrado no estoque da unidade.`,
+        })
       }
-      toast({ title: 'Sucesso', description: editando ? 'Insumo atualizado.' : 'Insumo cadastrado.' })
-      setDialogInsumo(false)
-      await carregar()
-    } catch (err) {
-      toast({ title: 'Falha ao salvar', description: getErrorMessage(err), variant: 'destructive' })
+      setModalInsumoOpen(false)
+      carregarDados()
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao carregar estoque',
+        description:
+          getErrorMessage(err) || 'Não foi possível carregar os dados de estoque da unidade.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSalvando(false)
     }
   }
 
-  const registrarEntrada = async () => {
-    if (!unidadeSelecionada || !tenant?.id) return
-    const qtd = Number(formEntrada.quantidade)
-    if (!formEntrada.insumo_id || !qtd || qtd <= 0) {
-      toast({ title: 'Atenção', description: 'Informe o insumo e uma quantidade válida.', variant: 'destructive' })
+  // Registrar Entrada de Lote
+  const registrarEntrada = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!formEntrada.insumo_id) {
+      toast({
+        title: 'Insumo não selecionado',
+        description: 'Selecione o insumo para dar entrada no lote.',
+        variant: 'destructive',
+      })
       return
     }
+    const qtd = Number(formEntrada.quantidade)
+    if (!qtd || qtd <= 0) {
+      toast({
+        title: 'Quantidade inválida',
+        description: 'A quantidade de entrada deve ser maior que zero.',
+        variant: 'destructive',
+      })
+      return
+    }
+    if (!tenant?.id || !unidadeAtivaId) return
+
+    setSalvando(true)
     try {
-      await pb.collection('lotes_estoque').create({
+      const insumo = itens.find((i) => i.insumo.id === formEntrada.insumo_id)?.insumo
+      const custo =
+        formEntrada.custo_unitario !== ''
+          ? Number(formEntrada.custo_unitario)
+          : Number(insumo?.custo_referencia) || 0
+
+      // 1. Cria o lote
+      const loteCriado = await pb.collection('lotes_estoque').create<LoteEstoqueRecord>({
         tenant_id: tenant.id,
-        unidade_id: unidadeSelecteded.id,
+        unidade_id: unidadeAtivaId,
         insumo_id: formEntrada.insumo_id,
         quantidade: qtd,
-        custo_unitario: Number(formEntrada.custo_unitario) || 0,
-        validade: formEntrada.validade || '',
-        fabricante_lote: formEntrada.fabricante_lote.trim(),
-        data_entrada: formEntrada.data_entrada || hojeIso(),
+        custo_unitario: custo,
+        validade: formEntrada.validade ? new Date(formEntrada.validade).toISOString() : '',
+        lote: formEntrada.lote.trim(),
+        fabricante: formEntrada.fabricante.trim() || insumo?.fornecedor || '',
+        data_entrada: formEntrada.data_entrada
+          ? new Date(formEntrada.data_entrada).toISOString()
+          : new Date().toISOString(),
       })
+
+      // 2. Cria a movimentação append-only de entrada
       await pb.collection('movimentacoes_estoque').create({
         tenant_id: tenant.id,
-        unidade_id: unidadeSelecionada.id,
+        unidade_id: unidadeAtivaId,
         insumo_id: formEntrada.insumo_id,
         tipo: 'entrada',
         quantidade: qtd,
-        motivo: `Entrada de lote ${formEntrada.fabricante_lote || ''}`.trim(),
+        motivo: `Entrada de lote ${formEntrada.lote ? `(${formEntrada.lote})` : ''}`,
+        lote_id: loteCriado.id,
+        profissional: user?.name || 'Gestor de Estoque',
       })
-      toast({ lote: 'Sucesso', title: 'Sucesso', description: 'Entrada de lote registrada.' })
-      setDialogEntrada(false)
-      await carregar()
-    } catch (err) TWO toast({ title: 'Falha ao registrar entrada', description: getErrorMessage(err), variant: 'destructive' })
+
+      await registrarAuditoria({
+        tenantId: tenant.id,
+        userEmail: user?.email,
+        perfil,
+        acao: 'estoque_entrada_lote',
+        detalhes: `Entrada de ${qtd} un. de ${insumo?.nome || 'insumo'} (Lote ${formEntrada.lote || 'S/N'})`,
+      })
+
+      toast({
+        title: 'Entrada registrada com sucesso!',
+        description: `${qtd} ${insumo?.unidade_medida || 'un.'} de "${insumo?.nome}" adicionados ao estoque.`,
+      })
+
+      // Limpar form e mudar para a aba de insumos ou movimentações
+      setFormEntrada({
+        insumo_id: '',
+        quantidade: '',
+        custo_unitario: '',
+        validade: '',
+        lote: '',
+        fabricante: '',
+        data_entrada: hojeIso(),
+      })
+      await carregarDados()
+      setAba('insumos')
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao salvar insumo',
+        description: getErrorMessage(err) || 'Não foi possível gravar o insumo.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSalvando(false)
+    }
   }
 
-  const registrarConsumo = async () => {
-    if (!unidadeSelecionada || !tenant?.id) return
+  // Registrar Consumo / Perda / Ajuste
+  const registrarConsumoAjuste = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!formConsumo.insumo_id) {
+      toast({
+        title: 'Insumo não selecionado',
+        description: 'Selecione o insumo para registrar a movimentação.',
+        variant: 'destructive',
+      })
+      return
+    }
     const qtd = Number(formConsumo.quantidade)
-    const vinculado = formConsumo.atendimento_id !== 'none' && !!formConsumo.atendimento_id
-    if (!formConsumo.insumo_id || !qtd || qtd <= 0) {
-      toast({ title: 'Atenção', description: 'Informe o insumo e uma quantidade válida.', variant: 'destructive' })
+    if (
+      isNaN(qtd) ||
+      (formConsumo.tipo !== 'ajuste' && qtd <= 0) ||
+      (formConsumo.tipo === 'ajuste' && qtd < 0)
+    ) {
+      toast({
+        title: 'Quantidade inválida',
+        description:
+          formConsumo.tipo === 'ajuste'
+            ? 'Informe o saldo final apurado (zero ou positivo).'
+            : 'A quantidade deve ser maior que zero.',
+        variant: 'destructive',
+      })
       return
     }
-    if (!vinculado && !formConsumo.motivo.trim()) {
-      toast({ title: 'Atenção', description: 'Consumo manual exige motivo.', variant: 'destructive' })
+
+    const insumoComSaldo = itens.find((i) => i.insumo.id === formConsumo.insumo_id)
+    const saldoAtual = insumoComSaldo?.saldo || 0
+
+    // Validação preventiva no frontend: consumo ou perda acima do saldo é bloqueado com mensagem clara
+    if ((formConsumo.tipo === 'consumo' || formConsumo.tipo === 'perda') && qtd > saldoAtual) {
+      toast({
+        title: 'Saldo insuficiente',
+        description: `Não é possível registrar saída de ${qtd} ${insumoComSaldo?.insumo.unidade_medida || 'un.'}. Saldo atual disponível: ${saldoAtual}.`,
+        variant: 'destructive',
+      })
       return
     }
+
+    // Motivo obrigatório em consumo manual, perda e ajuste
+    if (!formConsumo.motivo.trim() && !formConsumo.atendimento_id) {
+      toast({
+        title: 'Motivo obrigatório',
+        description: 'Informe o motivo ou vincule a um atendimento clínico.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    if (!tenant?.id || !unidadeAtivaId) return
+
+    setSalvando(true)
     try {
+      const agSel = agendamentos.find((a) => a.id === formConsumo.atendimento_id)
+
       await pb.collection('movimentacoes_estoque').create({
         tenant_id: tenant.id,
-        unidade_id: unidadeSelecionada.id,
+        unidade_id: unidadeAtivaId,
         insumo_id: formConsumo.insumo_id,
+        tipo: formConsumo.tipo,
+        quantidade: qtd,
+        motivo:
+          formConsumo.motivo.trim() || `Consumo em atendimento (${agSel?.label || 'Clínico'})`,
+        atendimento_id: formConsumo.atendimento_id || '',
+        paciente_id: agSel?.pacienteId || '',
+        profissional: formConsumo.profissional.trim() || user?.name || 'Profissional',
+      })
+
+      await registrarAuditoria({
+        tenantId: tenant.id,
+        userEmail: user?.email,
+        perfil,
+        acao: `estoque_${formConsumo.tipo}`,
+        detalhes: `${formConsumo.tipo.toUpperCase()} de ${qtd} un. do insumo ${insumoComSaldo?.insumo.nome || ''}`,
+      })
+
+      toast({
+        title:
+          formConsumo.tipo === 'consumo'
+            ? 'Consumo registrado!'
+            : formConsumo.tipo === 'perda'
+              ? 'Perda registrada!'
+              : 'Saldo ajustado!',
+        description: `Movimentação registrada com sucesso no estoque da unidade.`,
+      })
+
+      setFormConsumo({
+        insumo_id: '',
         tipo: 'consumo',
-        quantidade: qtd,
-        motivo: formConsumo.motivo.trim() || `Consumo clínico — ${atendimento?.label || 'atendimento'}`,
-        atendimento_id: vinculado ? formConsumo.atendimento_id : '',
-        paciente_id: vinculado ? (atendimento?.pacienteId || '') : '',
+        quantidade: '',
+        motivo: '',
+        atendimento_id: '',
+        profissional: user?.name || '',
       })
-      toast({ title: 'Sucesso', description: 'Consumo registrado.' })
-      setDialogConsumo(false)
-      await carregar()
-    } catch (err) {
-      toast({ title: 'Falha ao registrar consumo', description: getErrorMessage(err), variant: 'destructive' })
-    }
-  }
-
-  const registrarAjusteOuPerda = async () => {
-    if (!unidadeSelecionada || !tenant?.id) return
-    const qtd = Number(formAjuste.quantidade)
-    const tipo = formAjuste.tipo as 'ajuste' | 'perda'
-    if (tipo === 'perda' && (!qtd || qtd <= 0)) {
-      toast({ title: 'Atenção', description: 'Informe a quantidade perdida.', variant: 'destructive' })
-      return
-    }
-    if (tipo === 'ajuste' && (isNaN(qtd) || qtd < 0)) {
-      toast({ title: 'Atenção', description: 'Informe o saldo final (não negativo).', variant: 'destructive' })
-      return
-    }
-    if (!formAjuste.motivo.trim()) {
-      toast({ title: 'Atenção', description: 'Informe o motivo.', variant: 'destructive' })
-      return
-    }
-    try {
-      await pb.collection('movimentacoes_estoque').create({
-        tenant_id: tenant.id,
-        unidade_id: unidadeSelecionada.id,
-        insumo_id: insumoAlerta?.insumo.id || '',
-        insumo_id: insumoAlerta?.insumo.id || '',
-        tipo,
-        quantidade: qtd,
-        motivo: formAjuste.motivo.trim(),
+      await carregarDados()
+      setAba('insumos')
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao registrar entrada',
+        description: getErrorMessage(err) || 'Falha ao registrar lote e movimentação de entrada.',
+        variant: 'destructive',
       })
-      toast({ title: 'Sucesso', description: 'Movimentação registrada.' })
-      setDialogAjuste(false)
-      await carregar()
-    } catch (err) {
-      toast({ title: 'Falha ao registrar', description: getErrorMessage(err), variant: 'destructive' })
+    } finally {
+      setSalvando(false)
     }
   }
 
-  // ---------- badges ----------
-  const badgeEstoque = (i: InsumoComSaldo) => {
-    if (i.piorValidade.status === 'vencido')
-      return <Badge variant="destructive">Vencido</Badge>
-    if (i.situacaoEstoque === 'sem_estoque') return <Badge variant="destructive">Sem estoque</Badge>
-    if (i.situacaoEstoque === 'baixo') return <Badge className="bg-amber-100 text-amber-800">Estoque baixo</Badge>
-    if (i.piorValidade.status === 'proximo')
-      return <Badge className="bg-amber-100 text-amber-800">{`Validade: ${i.piorValidade.diasRestantes}d`}</Badge>
-    return <Badge variant="outline">OK</Badge>
+  // Helper para pré-selecionar insumo ao clicar em "Registrar Entrada" ou "Consumir" na tabela
+  const prepararEntradaInsumo = (insumoId: string) => {
+    setFormEntrada((prev) => ({ ...prev, insumo_id: insumoId }))
+    setAba('entradas')
   }
 
-  if (!unidadeSelecionada) {
-    return (
-      <div className="flex h-64 items-center justify-center text-muted-foreground">
-        Selecione uma unidade no cabeçalho para visualizar o estoque.
-      </div>
-    )
+  const prepararConsumoInsumo = (insumoId: string) => {
+    setFormConsumo((prev) => ({ ...prev, insumo_id: insumoId, tipo: 'consumo' }))
+    setAba('consumo')
   }
 
   return (
-    <div className="space-y-6">
-      {/* Cabeçalho */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold">
-            <Package className="h-6 w-6" /> Controle de Estoque & Insumos
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Visão da unidade <strong>{unidadeSelecionada.nome}</strong>
-            {user?.perfil === 'recepcao' && ' — perfil de visualização'}
-          </ recepcao>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {podeGerenciar && (
-            <>
-              <Button onClick={() => { setEditando(null); resetInsumo(); setDialogInsumo(true) }}>
-                <Plus className="mr-2 h-4 w-4" /> Novo insumo
-              </Button>
-              <Button variant="outline" onClick={() => { resetEntrada(); setDialogEntrada(true) }}>
-                <PackagePlus className="mr-2 h-4 w-4" /> Entrada de lote
-              </Button>
-              <Button variant="outline" onClick={() => setRelatorio(true)}>
-                <TrendingDown className="mr-2 h-4 w-4" /> Relatório de custos
-              </Button>
-            </>
-          )}
-          <Button variant="secondary" onClick={() => { resetConsumo(); setDialogConsumo(true) }}>
-            <TrendingDown className="mr-2 h-4 w-4" /> Registrar consumo
-          </Button>
-        </div>
-      </div>
-
-      {/* Alertas da unidade */}
-      {alertas.length > 0 && (
-        <Card className="border-amber-300 bg-amber-50/60">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-amber-800 text-base">
-              <AlertTriangle className="h-4 w-4" />
-              {alertas.length} insumo(s) com alerta (estoque baixo ou validade)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-2">
-              {alertas.map((a) => (
-                <Badge key={a.insumo.id} variant="outline" className="border-amber-400 text-amber-800">
-                  {a.insumo.nome}
-                  {a.piorValidade.status === 'vencido' ? ' — vencido' : a.situacaoEstoque !== 'ok' ? ` — saldo ${a.saldo}/${a.insumo.estoque_minimo}` : ''}
-                </Badge>
-              ))}
+    <ModuloGate
+      modulo="estoque"
+      fallbackTitle="Controle de Estoque & Insumos — Plano Pro"
+      fallbackDescription="Gerencie entradas de lotes com validade, consumo clínico por atendimento, alertas de estoque baixo e apuração de custos em conformidade com o BL-025."
+    >
+      <div className="p-4 lg:p-6 space-y-6 max-w-7xl mx-auto">
+        {/* Cabeçalho da página */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-200">
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
+                <Warehouse className="w-7 h-7 text-[#0E7490]" />
+                Controle de Estoque & Insumos
+              </h1>
+              <Badge
+                variant="outline"
+                className="text-xs border-cyan-300 bg-cyan-50 text-[#0E7490]"
+              >
+                {unidadeAtivaNome}
+              </Badge>
             </div>
-        </CardContent>
-        </Card>
-      )}
-
-      <Tabs value={aba} onValueChange={(v) => setAba(v as AbaId)}>
-        <TabsList>
-          <TabsTrigger value="insumos">Insumos</TabsTrigger>
-          <TabsTrigger value="movimentacoes">Movimentações</TabsValueChange>
-          <TabsTrigger value="entradas">Entradas</TabsTrigger>
-          <TabsTrigger value="consumo">Consumo</TabsTrigger>
-        </TabsList>
-
-        {/* ---------------- Insumos ---------------- */}
-        <TabsContent value="insumos" className="space-y-3">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Buscar por nome ou categoria…"
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              className="pl-8"
-            />
+            <p className="text-sm text-slate-500 mt-1">
+              Rastreamento de insumos, entradas de lotes com validade e consumo clínico append-only
+              (BL-025).
+            </p>
           </div>
-          <Card>
-            <CardContent className="p-0">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-muted-foreground">
-                    <th className="p-3">Insumo</th>
-                    <th className="p-3">Categoria</th>
-                    <th className="p-3">Saldo</th>
-                    <th className="p-3">Mínimo</th>
-                    <th className="p-3">Status</th>
-                    <th className="p-3">Validade mais próxima</th>
-                    {podeGerenciar && <th className="p-3">Valor em estoque</th>}
-                    {podeGerenciar && <th className="p-3">Ações</th>}
-                    {!podeGerenciar && <th className="p-3" />}
-                  </tr>
-                </thead>
-                <tbody>
-                  {carregando && (
-                    <tr><td colSpan={8} className="p-6 text-center text-muted-foreground">Carregando…</td></tr>
-                  )}
-                  {!carregando && insumosFiltrados.length === 0 && (
-                    <tr><td colSpan={8} className="p-6 text-center text-muted-foreground">Nenhum insumo cadastrado nesta unidade.</td></tr>
-                  )}
-                  {!carregando && insumosFiltrados.map((i) => (
-                    <tr key={i.insumo.id} className="border-b last:border-0">
-                      <td className="p-3 font-medium">{i.insumo.nome}</td>
-                      <td className="p-3">{LABEL_CATEGORIA[i.insumo.categoria] || i.insumo.categoria}</td>
-                      <td className="p-3">
-                        {i.saldo} {i.insumo.unidade_medida}
-                      </td>
-                      <td className="p-3">{i.insumo.estoque_minimo}</td>
-                      <td className="p-3">{badgeEstoque(i)}</td>
-                      <td className="p-3">
-                        {i.piorValidade.status === 'vencido' && (
-                          <span className="text-destructive">Vencido em {fmtData(loteMaisProximo(i))}</span>
-                        )}
-                        {i.piorValidade.status === 'proximo' && (
-                          <span className="text-amber-700">{fmtData(loteMaisProximo(i))} ({i.piorValidade.diasRestantes}d)</span>
-                        )}
-                        {i.piorValidade.status === 'ok' && fmtData(loteMaisProximo(i))}
-                        {i.piorValidade.status === 'sem_validade' && '—'}
-                      </td>
-                      {podeGerenciar && <td className="p-3">{fmtMoney(i.valorTotal)}</td>}
-                      <td className="p-3">
-                        <div className="flex gap-1">
-                          {podeGerenciar && (
-                            <Button size="sm" variant="outline" onClick={() => abrirEdicao(i.insumo)}>Editar</Button>
-                          )}
-                          <Button size="sm" variant="secondary" onClick={() => { resetConsumo(i.insumo.id); setDialogConsumo(true) }}>Consumo</Button>
-                          {podeGerenciar && (
-                            <Button size="sm" variant="ghost" onClick={() => { setInsumoAlerta(i); setFormAjuste({ tipo: 'ajuste', quantidade: '', motivo: '' }); setDialogAjuste(true) }}>Ajuste/Perda</Button>
-                          )}
-                        </div>
-                        {isRecepcao && <span className="text-xs text-muted-foreground">Somente visualização</span>}
-                        {user?.perfil === 'recepcao' && <span className="ml-2 text-xs text-muted-foreground">Somente visualização</span>}
-                      </ recepcao>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={carregarDados}
+              disabled={carregando}
+              className="text-slate-600 gap-1"
+            >
+              <RefreshCw className={`w-4 h-4 ${carregando ? 'animate-spin' : ''}`} />
+              Atualizar
+            </Button>
+
+            {podeGerenciar && (
+              <Button
+                onClick={() => abrirModalInsumo()}
+                className="bg-[#0E7490] hover:bg-[#155E75] text-white gap-1.5"
+              >
+                <Plus className="w-4 h-4" />
+                Novo Insumo
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Banner de permissão quando recepção visualiza */}
+        {isRecepcao && (
+          <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+            <ShieldAlert className="w-4 h-4 shrink-0 text-amber-600" />
+            <span>
+              Perfil <strong>Recepção</strong>: modo somente-leitura. Entradas de lotes, ajustes e
+              registros de consumo são restritos a gestores e profissionais clínicos.
+            </span>
+          </div>
+        )}
+
+        {/* Cards de Métricas / Alertas */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+                Insumos Ativos
+              </CardTitle>
+              <Package className="w-4 h-4 text-cyan-600" />
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="text-2xl font-bold text-slate-900">{metricas.totalInsumos}</div>
+              <p className="text-xs text-slate-500 mt-1">Cadastrados nesta unidade</p>
             </CardContent>
           </Card>
-        </TabsContent>
 
-        {/* ---------------- Movimentações ---------------- */}
-        <TabsContent value="movimentacoes" className="space-y-3">
-          <Card>
-            <CardContent className="p-0">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-muted-foreground">
-                    <th className="p-3">Data</th>
-                    <th className="p-3">Insumo</th>
-                    <th className="p-3">Tipo</th>
-                    <th className="p-3">Qtd</th>
-                    <th className="p-3">Motivo</th>
-                    <th className="p-3">Responsável</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {movs.slice(0, 200).map((m) => {
-                    const insumo = itens.find((i) => i.insumo.id === m.insumo_id)
-                    return (
-                      <tr key={m.id} className="border-b last:border-0">
-                        <td className="p-3">{fmtDataHora(m.created)}</td>
-                        <td className="p-3">{insumo?.insumo.nome || m.insumo_id}</td>
-                        <td className="p-3">{LABEL_TIPO_MOV[m.tipo] || m.tipo}</td>
-                        <td className="p-3">{m.tipo === 'entrada' ? '+' : m.tipo === 'ajuste' ? '=' : '−'}{m.quantidade}</td>
-                        <td className="p-3">{m.motivo || '—'}</td>
-                        <td className="p-3">{(m as any).responsavel_email || '—'}</td>
-                </tr>
-                    )
-                  })}
-                  {movs.length === 0 && (
-                    <tr><td colSpan={6} className="p-6 text-center text-muted-foreground">Nenhuma movimentação registrada.</td></tr>
-                  )}
-                </tbody>
-              </table>
-              <p className="border-t p-3 text-xs text-muted-foreground">
-                Histórico append-only: não é possível editar ou excluir movimentações — correções são feitas por nova movimentação de ajuste.
-              </p>
-            </delete>
-          </Card>
-        </TabsContent>
-
-        {/* ---------------- Entradas ---------------- */}
-        <TabsContent value="entradas">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Entradas (lotes) — apenas gestores</CardTitle>
+          <Card
+            className={`shadow-sm cursor-pointer transition-all ${
+              filtroAlerta === 'baixo' ? 'ring-2 ring-amber-500 bg-amber-50/30' : 'border-slate-200'
+            }`}
+            onClick={() => setFiltroAlerta(filtroAlerta === 'baixo' ? 'todos' : 'baixo')}
+          >
+            <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-xs font-medium text-amber-700 uppercase tracking-wider">
+                Estoque Baixo
+              </CardTitle>
+              <AlertTriangle className="w-4 h-4 text-amber-600" />
             </CardHeader>
-            <CardContent>
-              {podeGerenciar ? (
-                <div className="flex flex-wrap items-center gap-3">
-                  <p className="text-sm text-muted-foreground">
-                    Registre a chegada de novos lotes com quantidade, custo, validade e fabricante/lote.
-                  </p>
-                  <Button onClick={() => { resetEntrada(); setDialogEntrada(true) }}>
-                    <PackagePlus className="mr-2 h-4 w-4" /> Registrar entrada
-                  </Button>
-                  <div className="w-full">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b text-left text-muted-foreground">
-                          <th className="p-2">Data</th>
-                          <th className="p-2">Insumo</th>
-                          <th className="p-2">Qtd</th>
-                          <th className="p-2">Custo unit.</th>
-                          <th className="p-2">Validade</th>
-                          <th className="p-2">Lote/Fabricante</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {lotesLista.map((l) => (
-                          <tr key={l.id} className="border-b last:border-0">
-                            <td className="p-2">{fmtData(l.data_entrada || l.created)}</td>
-                            <td className="p-2">{itens.find((i) => i.insumo.id === l.insumo_id)?.insumo.nome || l.insemo_id}</td>
-                            <td className="p-2">{l.quantidade}</td>
-                            <td className="p-2">{fmtMoney(Number(l.custo_unitario) || 0)}</td>
-                            <td className="p-2">
-                              {(() => {
-                                const s = situacaoValidade(l.validade)
-                                if (s.status === 'vencido') return <span className="text-destructive">Vencido ({fmtData(l.validade)})</span>
-                                if (s.status === 'proximo') return <span className="text-amber-700">{fmtData(l.validade)} ({s.diasRestantes}d)</span>
-                                return fmtData(l.validade)
-                              })()}
-                            </td>
-                            <td className="p-2">{l.fabricante_lote || '—'}</div>
-                          </td>
-                        </tr>
+            <CardContent className="p-4 pt-0">
+              <div className="text-2xl font-bold text-amber-700">{metricas.totalBaixo}</div>
+              <p className="text-xs text-slate-500 mt-1">
+                {metricas.totalBaixo > 0
+                  ? 'Insumos abaixo do estoque mínimo'
+                  : 'Nenhum insumo em nível crítico'}
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card
+            className={`shadow-sm cursor-pointer transition-all ${
+              filtroAlerta === 'validade' ? 'ring-2 ring-red-500 bg-red-50/30' : 'border-slate-200'
+            }`}
+            onClick={() => setFiltroAlerta(filtroAlerta === 'validade' ? 'todos' : 'validade')}
+          >
+            <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-xs font-medium text-red-700 uppercase tracking-wider">
+                Alerta de Validade
+              </CardTitle>
+              <CalendarClock className="w-4 h-4 text-red-600" />
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="text-2xl font-bold text-red-700">
+                {metricas.totalVencidosOuProximos}
+              </div>
+              <p className="text-xs text-slate-500 mt-1">Lotes vencidos ou em até 30 dias</p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+                Valor em Estoque
+              </CardTitle>
+              <TrendingDown className="w-4 h-4 text-emerald-600" />
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="text-2xl font-bold text-slate-900">
+                {podeGerenciar ? fmtMoney(metricas.valorTotalEstoque) : '••••••'}
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                {podeGerenciar ? 'Custo total acumulado dos lotes' : 'Visível apenas para gestores'}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Abas Principais */}
+        <Tabs value={aba} onValueChange={(v) => setAba(v as AbaId)} className="space-y-4">
+          <TabsList className="bg-slate-100 p-1 border border-slate-200">
+            <TabsTrigger value="insumos" className="gap-2">
+              <Package className="w-4 h-4" />
+              <span>Insumos</span>
+              <Badge variant="secondary" className="ml-1 text-[10px] px-1.5 py-0 h-4">
+                {itens.length}
+              </Badge>
+            </TabsTrigger>
+
+            <TabsTrigger value="movimentacoes" className="gap-2">
+              <History className="w-4 h-4" />
+              <span>Movimentações</span>
+              <Badge variant="secondary" className="ml-1 text-[10px] px-1.5 py-0 h-4">
+                {movs.length}
+              </Badge>
+            </TabsTrigger>
+
+            {podeGerenciar && (
+              <TabsTrigger value="entradas" className="gap-2">
+                <PackagePlus className="w-4 h-4" />
+                <span>Entrada de Lote</span>
+              </TabsTrigger>
+            )}
+
+            {podeConsumir && (
+              <TabsTrigger value="consumo" className="gap-2">
+                <TrendingDown className="w-4 h-4" />
+                <span>Consumo / Ajuste</span>
+              </TabsTrigger>
+            )}
+          </TabsList>
+
+          {/* ================================================================ */}
+          {/* ABA 1: INSUMOS                                                   */}
+          {/* ================================================================ */}
+          <TabsContent value="insumos" className="space-y-4">
+            {/* Filtros da tabela */}
+            <Card className="border-slate-200">
+              <CardContent className="p-3">
+                <div className="flex flex-col md:flex-row items-center gap-3">
+                  <div className="relative flex-1 w-full">
+                    <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+                    <Input
+                      placeholder="Buscar por insumo ou fornecedor..."
+                      value={busca}
+                      onChange={(e) => setBusca(e.target.value)}
+                      className="pl-9"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2 w-full md:w-auto">
+                    <Select value={filtroCategoria} onValueChange={setFiltroCategoria}>
+                      <SelectTrigger className="w-full md:w-[180px]">
+                        <SelectValue placeholder="Categoria" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="todas">Todas Categorias</SelectItem>
+                        {CATEGORIAS_INSUMO.map((cat) => (
+                          <SelectItem key={cat} value={cat}>
+                            {LABEL_CATEGORIA[cat] || cat}
+                          </SelectItem>
                         ))}
-                        {lotesLista.length === 0 && (
-                          <tr><td colSpan={6} className="p-6 text-center text-muted-foreground">Nenhuma entrada registrada.</td></tr>
-                        )}
-                      </tbody>
-                    </table>
+                      </SelectContent>
+                    </Select>
+
+                    <Select
+                      value={filtroAlerta}
+                      onValueChange={(v) => setFiltroAlerta(v as 'todos' | 'baixo' | 'validade')}
+                    >
+                      <SelectTrigger className="w-full md:w-[170px]">
+                        <SelectValue placeholder="Alertas" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="todos">Todos Status</SelectItem>
+                        <SelectItem value="baixo">Apenas Estoque Baixo</SelectItem>
+                        <SelectItem value="validade">Validade Próxima/Vencida</SelectItem>
+                      </SelectContent>
+                    </Select>
+
+                    {(busca || filtroCategoria !== 'todas' || filtroAlerta !== 'todos') && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setBusca('')
+                          setFiltroCategoria('todas')
+                          setFiltroAlerta('todos')
+                        }}
+                        className="text-xs text-slate-500"
+                      >
+                        Limpar
+                      </Button>
+                    )}
                   </div>
                 </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Seu perfil visualiza o estoque e registra consumos; entradas de lote são feitas por Owner, Financeiro ou Super Admin.
-                </p>
-                </CardHeader>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
+              </CardContent>
+            </Card>
 
-        {/* ---------------- Consumo ---------------- */}
-        <TabsContent value="consumo">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Consumo clínico e manual</CardTitle>
-            </Card preferably>
-            <CardContent className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Consumo vinculado a atendimento usa o insumo naquele procedimento e é a forma recomendada.
-                Consumo manual exige motivo. Ambos baixam o saldo imediatamente.
-              </p>
-              <Button onClick={() => { resetConsumo(); setDialogConsumo(true) }}>
-                <TrendingDown className="mr-2 h-4 w-4" /> Registrar consumo
-              </Button>
-              <div className="rounded-lg border p-3 text-sm text-muted-foreground">
-                Dentistas e ASB registram consumo; Recepção visualiza; ajustes, perdas, entradas e relatórios de custo são restritos a Owner, Financeiro e Super Admin.
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+            {/* Listagem em Tabela */}
+            <Card className="border-slate-200 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    <tr>
+                      <th className="px-4 py-3">Insumo</th>
+                      <th className="px-4 py-3">Categoria</th>
+                      <th className="px-4 py-3 text-right">Saldo Atual</th>
+                      <th className="px-4 py-3 text-right">Mínimo</th>
+                      <th className="px-4 py-3">Validade</th>
+                      {podeGerenciar && <th className="px-4 py-3 text-right">Custo Total</th>}
+                      <th className="px-4 py-3 text-right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {carregando ? (
+                      <tr>
+                        <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                          <RefreshCw className="w-5 h-5 animate-spin inline mr-2 text-cyan-600" />
+                          Carregando estoque da unidade...
+                        </td>
+                      </tr>
+                    ) : insumosFiltrados.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                          Nenhum insumo encontrado com os filtros selecionados.
+                        </td>
+                      </tr>
+                    ) : (
+                      insumosFiltrados.map((item) => {
+                        const { insumo, saldo, valorTotal, situacaoEstoque, piorValidade } = item
+                        const minimo = Number(insumo.estoque_minimo) || 0
 
-      {/* ---------- Dialogs ---------- */}
-      <Dialog open={dialogInsumo} onOpenChange={setDialogInsumo}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editando ? 'Editar insumo' : 'Novo insumo'}</DialogTitle>
-            <DialogDescription>
-              Dados do insumo para a unidade {unidadeSelecionada.nome}.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <Label htmlFor="insumo-nome">Nome</Label>
-              <Input id="insumo-nome" value={formInsumo.nome} onChange={(e) => setFormInsumo({ ...formInsumo, nome: e.target.value })} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Categoria</Label>
-                <Select value={formInsumo.categoria} onValueChange={(v) => setFormInsumo({ ...formInsumo, categoria: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {CATEGORIAS_INSUMO.map((c) => (
-                      <SelectItem key={c} value={c}>{LABEL_CATEGORIA[c]}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                        return (
+                          <tr key={insumo.id} className="hover:bg-slate-50/80 transition-colors">
+                            <td className="px-4 py-3">
+                              <div className="font-medium text-slate-900">{insumo.nome}</div>
+                              <div className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
+                                <span>{insumo.fornecedor || 'Sem fornecedor'}</span>
+                                {!insumo.ativo && (
+                                  <Badge variant="outline" className="text-[10px] text-slate-400">
+                                    Inativo
+                                  </Badge>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <Badge
+                                variant="outline"
+                                className="text-xs capitalize border-slate-300"
+                              >
+                                {LABEL_CATEGORIA[insumo.categoria] || insumo.categoria}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <div className="font-bold text-slate-900">
+                                {saldo}{' '}
+                                <span className="text-xs font-normal text-slate-500">
+                                  {insumo.unidade_medida}
+                                </span>
+                              </div>
+                              {situacaoEstoque === 'sem_estoque' && (
+                                <Badge variant="destructive" className="text-[10px] mt-0.5">
+                                  Sem Estoque
+                                </Badge>
+                              )}
+                              {situacaoEstoque === 'baixo' && (
+                                <Badge className="bg-amber-500 hover:bg-amber-600 text-[10px] mt-0.5">
+                                  Estoque Baixo
+                                </Badge>
+                              )}
+                              {situacaoEstoque === 'ok' && (
+                                <span className="text-[10px] text-emerald-600 flex items-center justify-end gap-1 mt-0.5">
+                                  <CheckCircle2 className="w-3 h-3" /> Normal
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-right text-slate-600">
+                              {minimo}{' '}
+                              <span className="text-xs text-slate-400">
+                                {insumo.unidade_medida}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              {piorValidade.status === 'vencido' && (
+                                <Badge variant="destructive" className="text-xs gap-1">
+                                  <AlertTriangle className="w-3 h-3" />
+                                  Vencido ({Math.abs(piorValidade.diasRestantes || 0)}d atrás)
+                                </Badge>
+                              )}
+                              {piorValidade.status === 'proximo' && (
+                                <Badge className="bg-amber-500 hover:bg-amber-600 text-xs gap-1">
+                                  <CalendarClock className="w-3 h-3" />
+                                  Vence em {piorValidade.diasRestantes}d
+                                </Badge>
+                              )}
+                              {piorValidade.status === 'ok' && (
+                                <span className="text-xs text-slate-600">
+                                  Validade OK ({piorValidade.diasRestantes}d)
+                                </span>
+                              )}
+                              {piorValidade.status === 'sem_validade' && (
+                                <span className="text-xs text-slate-400">
+                                  Sem lotes cadastrados
+                                </span>
+                              )}
+                            </td>
+                            {podeGerenciar && (
+                              <td className="px-4 py-3 text-right font-medium text-slate-800">
+                                {fmtMoney(valorTotal)}
+                              </td>
+                            )}
+                            <td className="px-4 py-3 text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                {podeConsumir && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => prepararConsumoInsumo(insumo.id)}
+                                    className="h-8 text-xs text-slate-700"
+                                    title="Registrar consumo ou ajuste"
+                                  >
+                                    Consumo
+                                  </Button>
+                                )}
+                                {podeGerenciar && (
+                                  <>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => prepararEntradaInsumo(insumo.id)}
+                                      className="h-8 text-xs text-[#0E7490] border-cyan-300 hover:bg-cyan-50"
+                                      title="Dar entrada de lote"
+                                    >
+                                      + Lote
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => abrirModalInsumo(insumo)}
+                                      className="h-8 text-xs text-slate-500 hover:text-slate-800"
+                                    >
+                                      Editar
+                                    </Button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })
+                    )}
+                  </tbody>
+                </table>
               </div>
-              <div>
-                <Label>Unidade de medida</Label>
-                <Select value={formInsumo.unidade_medida} onValueChange={(v) => setFormInsumo({ ...flow, unidade_medida: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {['un', 'cx', 'ml', 'g', 'kg', 'seringa', 'frasco'].map((u) => (
-                      <SelectItem key={un} value={u}>{u}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <Label htmlFor="insumo-min">Estoque mínimo</Label>
-                <Input id="insumo-min" type="number" min={0} value={formInsumo.estoque_minimo} onChange={(e) => setFormInsumo({ ...formInsumo, estoque_minimo: e.target.value })} />
-              </div>
-              <div>
-                <Label htmlFor="insumo-custo">Custo de referência (R$)</Label>
-                <Input id="insumo-custo" type="number" min={0} step="0.01" value={formInsumo.custo_referencia} onChange={(e) => setFormInsumo({ ...formInsumo, custo_referencia: e.target.value })} />
-              </div>
-              <div>
-                <Label htmlFor="insumo-forn">Fornecedor</Label>
-                <Input id="insumo-forn" value={formInsumo.fornecedor} onChange={(e) => setFormInsumo({ ...formInsumo, fornecedor: e.target.value })} />
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogInsumo(false)}>Cancelar</Button>
-            <Button onClick={salvarInsumo}>Salvar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            </Card>
+          </TabsContent>
 
-      <Dialog open={dialogEntrada} onOpenChange={setDialogEntrada}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Entrada de lote</DialogTitle>
-            <DialogDescription>
-              A entrada cria o lote e a movimentação do tipo entrada, somando ao saldo da unidade.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <Label>Insumo</Label>
-              <Select value={formEntrada.insumo_id} onValueChange={(v) => setFormEntrada({ ...formEntrada, insumo_id: v })}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>
-                  {itens.map((i) => (
-                    <SelectItem key={i.insumo.id} value={i.insumo.id}>{i.insumo.nome}</SelectItem>
-                  ))}
-                </SelectContent>
-                </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="entrada-qtd">Quantidade</Label>
-                <Input id="entrada-qtd" type="number" min={1} value={formEntrada.quantidade} onChange={(e) => setFormEntrada({ ...formEntrada, quantidade: e.target.value })} />
-              </div>
-              <div>
-                <Label htmlFor="entrada-custo">Custo unitário (R$)</Label>
-                <Input id="entrada-custo" type="number" min={0} step="0.01" value={formEntrada.custo_unitario} onChange={(e) => setFormEntrada({ ...formEntrada, custo_unitario: e.target.value })} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="entrada-validade">Validade</Label>
-                <Input id="entrada-validade" type="date" value={formEntrada.validade} onChange={(e) => j setFormEntrada({ ...formEntrada, validade: e.target.value })} />
-              </div>
-              <div>
-                <Label htmlFor="entrada-lote">Lote/Fabricante</Label>
-                <Input id="entrada-lote" value={formEntrada.fabricante_lote} onChange={(e) => setFormEntrada({ ...formEntrada, fabricante_lote: e.target.value })} />
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogEntrada(false)}>Cancelar</Button>
-            <Button onClick={registrarEntrada}>Registrar entrada</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          {/* ================================================================ */}
+          {/* ABA 2: MOVIMENTAÇÕES (APPEND-ONLY)                               */}
+          {/* ================================================================ */}
+          <TabsContent value="movimentacoes" className="space-y-4">
+            <Card className="border-slate-200">
+              <CardContent className="p-3">
+                <div className="flex flex-col md:flex-row items-center gap-3">
+                  <div className="relative flex-1 w-full">
+                    <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+                    <Input
+                      placeholder="Buscar por motivo, profissional ou insumo..."
+                      value={busca}
+                      onChange={(e) => setBusca(e.target.value)}
+                      className="pl-9"
+                    />
+                  </div>
 
-      <Dialog open={dialogConsumo} onOpenChange={setDialogConsumo}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Registrar consumo</DialogTitle>
-            <DialogDescription>
-              Vincule a um atendimento (recomendado) ou registre consumo manual com motivo.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <Label>Insumo</Label>
-              <Select value={formConsumo.insumo_id} onValueChange={(v) => setFormConsumo({ ...formConsumo, insumo_id: v })}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>
-                  {itens.map((i) => (
-                    <SelectItem key={i.insumo.id} value={i.insumo.id}>
-                      {i.insumo.nome} (saldo {i.saldo})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="consumo-qtd">Quantidade</Label>
-              <Input id="consumo-qtd" type="number" min={1} value={formConsumo.quantidade} onChange={(e) => setFormConsumo({ ...formConsumo, quantidade: e.target.value })} />
-            </div>
-            <div>
-              <Label>Atendimento (opcional)</Label>
-              <Select value={formConsumo.atendimento_id} onValueChange={(v) => {
-                const ag = agendamentos.find((a) => a.id === v)
-                setFormConsumo({ ...formConsumo, atendimento_id: v, paciente_id: ag?.pacienteId || '' })
-              }}>
-                <SelectTrigger><SelectValue placeholder="Consumo manual" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Consumo manual (sem atendimento)</SelectItem>
-                  {agendamentos.map((a) => (
-                    <SelectItem key={a.id} value={a.id}>{a.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="consumo-motivo">
-                Motivo {formConsumo.atendimento_id !== 'none' ? '(opcional quando vinculado)' : '(obrigatório)'}
-              </Label>
-              <Textarea id="consumo-motivo" value={formConsumo.motivo} onChange={(e) => setFormConsumo({ ...formConsumo, motivo: e.target.value })} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogConsumo(false)}>Cancelar</Button>
-            <Button onClick={registrarConsumo}>Registrar consumo</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={dialogAjuste} onOpenChange={setDialogAjuste}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Ajuste / perda — {insumoAlerta?.insumo.nome}</DialogTitle>
-            <DialogDescription>
-              Ajuste define o saldo final; perda subtrai a quantidade perdida/vencida. Ambos exigem motivo e ficam no histórico append-only.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <Label>Tipo</Label>
-              <Select value={formAjuste.tipo} onValueChange={(v) => setFormAjuste({ ...formAjuste, tipo: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ajuste">Ajuste (define saldo final)</SelectItem>
-                  <SelectItem value="perda">Perda/Vencimento (subtrai)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="ajuste-qtd">Quantidade</Label>
-              <Input id="ajuste-qtd" type="number" value={formAjuste.quantidade} onChange={(e) => setFormAjuste({ ...formAjuste, quantidade: e.target.value })} />
-            </div>
-            <div>
-              <Label htmlFor="ajuste-motivo">Motivo</Label>
-              <Textarea id="ajuste-motivo" value={formAjuste.moto} onChange={(e) => setFormAjuste({ ...formAjuste, motivo: e.target.value })} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogAjuste(false)}>Cancelar</Button>
-  <Button onClick={registrarAjusteOuPerda}>Registrar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ---------- Relatório de custos (gestores) ---------- */}
-      <Dialog open={relatorio} onOpenChange={setRelatorio}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Relatório de custos — {unidadeSelecionada.nome}</DialogTitle>
-            <DialogDescription>
-              Visível apenas para Owner, Financeiro e Super Admin.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 text-sm">
-            <div className="flex items-center justify-between rounded-lg border p-3">
-              <span>Valor total em estoque</span>
-              <strong>{fmtMoney(valorTotalEstoque)}</strong>
-            </div>
-            <div>
-              <p className="mb-2 font-medium">Consumo por categoria (últimos 3 meses)</p>
-              {consumoPorCategoria.length === 0 && <p className="text-muted-foreground">Sem consumo no período.</p>}
-              {consumoPorCategoria.map(([cat, valor]) => (
-                <div key={cat} className="flex items-center justify-between border-b py-1.5 last:border-0">
-                  <span>{LABEL_CATEGORIA[cat] || cat}</span>
-                  <span>{fmtMoney(valor)}</span>
+                  <Select value={filtroTipoMov} onValueChange={setFiltroTipoMov}>
+                    <SelectTrigger className="w-full md:w-[180px]">
+                      <SelectValue placeholder="Tipo de Movimentação" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todos">Todos os Tipos</SelectItem>
+                      <SelectItem value="entrada">Entradas</SelectItem>
+                      <SelectItem value="consumo">Consumos</SelectItem>
+                      <SelectItem value="ajuste">Ajustes</SelectItem>
+                      <SelectItem value="perda">Perdas/Vencimentos</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-              ))}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRelatorio(false)}>Fechar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-slate-200 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    <tr>
+                      <th className="px-4 py-3">Data/Hora</th>
+                      <th className="px-4 py-3">Tipo</th>
+                      <th className="px-4 py-3">Insumo</th>
+                      <th className="px-4 py-3 text-right">Quantidade</th>
+                      <th className="px-4 py-3">Motivo / Detalhes</th>
+                      <th className="px-4 py-3">Profissional</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {carregando ? (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                          <RefreshCw className="w-5 h-5 animate-spin inline mr-2 text-cyan-600" />
+                          Carregando histórico...
+                        </td>
+                      </tr>
+                    ) : movimentacoesFiltradas.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                          Nenhuma movimentação registrada nesta unidade.
+                        </td>
+                      </tr>
+                    ) : (
+                      movimentacoesFiltradas.map((m) => {
+                        const insumo = itens.find((i) => i.insumo.id === m.insumo_id)?.insumo
+                        const tipoBadge =
+                          m.tipo === 'entrada'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                            : m.tipo === 'consumo'
+                              ? 'bg-blue-50 text-blue-700 border-blue-300'
+                              : m.tipo === 'perda'
+                                ? 'bg-red-50 text-red-700 border-red-300'
+                                : 'bg-purple-50 text-purple-700 border-purple-300'
+
+                        return (
+                          <tr key={m.id} className="hover:bg-slate-50/80 transition-colors">
+                            <td className="px-4 py-3 whitespace-nowrap text-slate-600">
+                              {fmtDataHora(m.created)}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <Badge variant="outline" className={tipoBadge}>
+                                {LABEL_TIPO_MOV[m.tipo] || m.tipo}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-3 font-medium text-slate-900">
+                              {insumo?.nome || 'Insumo (' + m.insumo_id + ')'}
+                            </td>
+                            <td className="px-4 py-3 text-right font-bold text-slate-900 whitespace-nowrap">
+                              {m.tipo === 'entrada'
+                                ? '+'
+                                : m.tipo === 'consumo' || m.tipo === 'perda'
+                                  ? '-'
+                                  : '='}{' '}
+                              {m.quantidade} {insumo?.unidade_medida || 'un.'}
+                            </td>
+                            <td className="px-4 py-3 text-slate-600">
+                              <div>{m.motivo || '—'}</div>
+                              {m.atendimento_id && (
+                                <div className="text-[11px] text-cyan-700 font-mono mt-0.5">
+                                  Atendimento: {m.atendimento_id}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-slate-600">
+                              {m.profissional || 'Sistema'}
+                            </td>
+                          </tr>
+                        )
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </TabsContent>
+
+          {/* ================================================================ */}
+          {/* ABA 3: ENTRADA DE LOTE                                           */}
+          {/* ================================================================ */}
+          {podeGerenciar && (
+            <TabsContent value="entradas">
+              <Card className="max-w-2xl border-slate-200">
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <PackagePlus className="w-5 h-5 text-[#0E7490]" />
+                    Registrar Entrada de Lote
+                  </CardTitle>
+                  <CardDescription>
+                    Adicione um lote recebido de fornecedor com rastreio de validade e custo
+                    unitário. O saldo do insumo na unidade é atualizado automaticamente.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={registrarEntrada} className="space-y-4">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="ent-insumo">Insumo Odontológico *</Label>
+                      <Select
+                        value={formEntrada.insumo_id}
+                        onValueChange={(val) => {
+                          const ins = itens.find((i) => i.insumo.id === val)?.insumo
+                          setFormEntrada((prev) => ({
+                            ...prev,
+                            insumo_id: val,
+                            custo_unitario: ins?.custo_referencia || prev.custo_unitario,
+                            fabricante: ins?.fornecedor || prev.fabricante,
+                          }))
+                        }}
+                      >
+                        <SelectTrigger id="ent-insumo">
+                          <SelectValue placeholder="Selecione o insumo..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {itens.map((item) => (
+                            <SelectItem key={item.insumo.id} value={item.insumo.id}>
+                              {item.insumo.nome} (Saldo atual: {item.saldo}{' '}
+                              {item.insumo.unidade_medida})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="ent-qtd">Quantidade Recebida *</Label>
+                        <Input
+                          id="ent-qtd"
+                          type="number"
+                          step="any"
+                          min="0.01"
+                          placeholder="Ex.: 10"
+                          value={formEntrada.quantidade}
+                          onChange={(e) =>
+                            setFormEntrada({
+                              ...formEntrada,
+                              quantidade: e.target.value === '' ? '' : Number(e.target.value),
+                            })
+                          }
+                          required
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="ent-custo">Custo Unitário (R$)</Label>
+                        <Input
+                          id="ent-custo"
+                          type="number"
+                          step="0.01"
+                          placeholder="Ex.: 89.90"
+                          value={formEntrada.custo_unitario}
+                          onChange={(e) =>
+                            setFormEntrada({
+                              ...formEntrada,
+                              custo_unitario: e.target.value === '' ? '' : Number(e.target.value),
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="ent-lote">Número do Lote</Label>
+                        <Input
+                          id="ent-lote"
+                          placeholder="Ex.: L84920"
+                          value={formEntrada.lote}
+                          onChange={(e) => setFormEntrada({ ...formEntrada, lote: e.target.value })}
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="ent-validade">Data de Validade</Label>
+                        <Input
+                          id="ent-validade"
+                          type="date"
+                          value={formEntrada.validade}
+                          onChange={(e) =>
+                            setFormEntrada({ ...formEntrada, validade: e.target.value })
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="ent-fab">Fabricante / Fornecedor</Label>
+                        <Input
+                          id="ent-fab"
+                          placeholder="Ex.: Dentsply, 3M, Dental Cremer"
+                          value={formEntrada.fabricante}
+                          onChange={(e) =>
+                            setFormEntrada({ ...formEntrada, fabricante: e.target.value })
+                          }
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="ent-data">Data de Entrada</Label>
+                        <Input
+                          id="ent-data"
+                          type="date"
+                          value={formEntrada.data_entrada}
+                          onChange={(e) =>
+                            setFormEntrada({ ...formEntrada, data_entrada: e.target.value })
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    <div className="pt-2 flex justify-end gap-2">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => setAba('insumos')}
+                        disabled={salvando}
+                      >
+                        Cancelar
+                      </Button>
+                      <Button
+                        type="submit"
+                        disabled={salvando}
+                        className="bg-[#0E7490] hover:bg-[#155E75] text-white"
+                      >
+                        {salvando ? 'Registrando...' : 'Confirmar Entrada'}
+                      </Button>
+                    </div>
+                  </form>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
+
+          {/* ================================================================ */}
+          {/* ABA 4: CONSUMO / PERDA / AJUSTE                                  */}
+          {/* ================================================================ */}
+          {podeConsumir && (
+            <TabsContent value="consumo">
+              <Card className="max-w-2xl border-slate-200">
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <TrendingDown className="w-5 h-5 text-blue-600" />
+                    Registrar Consumo ou Ajuste
+                  </CardTitle>
+                  <CardDescription>
+                    Dentistas e ASBs podem registrar consumo clínico vinculado a atendimento.
+                    Gestores também podem registrar perdas por vencimento e ajustes de inventário.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={registrarConsumoAjuste} className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="cons-tipo">Tipo de Operação *</Label>
+                        <Select
+                          value={formConsumo.tipo}
+                          onValueChange={(val) =>
+                            setFormConsumo((prev) => ({
+                              ...prev,
+                              tipo: val as TipoMovimentacaoEstoque,
+                            }))
+                          }
+                        >
+                          <SelectTrigger id="cons-tipo">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="consumo">Consumo Clínico / Uso</SelectItem>
+                            {podeGerenciar && (
+                              <SelectItem value="perda">Perda / Descarte / Vencido</SelectItem>
+                            )}
+                            {podeGerenciar && (
+                              <SelectItem value="ajuste">Ajuste de Inventário (Balanço)</SelectItem>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="cons-insumo">Insumo *</Label>
+                        <Select
+                          value={formConsumo.insumo_id}
+                          onValueChange={(val) =>
+                            setFormConsumo((prev) => ({ ...prev, insumo_id: val }))
+                          }
+                        >
+                          <SelectTrigger id="cons-insumo">
+                            <SelectValue placeholder="Selecione o insumo..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {itens.map((item) => (
+                              <SelectItem key={item.insumo.id} value={item.insumo.id}>
+                                {item.insumo.nome} (Saldo atual: {item.saldo}{' '}
+                                {item.insumo.unidade_medida})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    {formConsumo.insumo_id && (
+                      <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-xs flex items-center justify-between">
+                        <span className="text-slate-600">Saldo atual disponível:</span>
+                        <span className="font-bold text-slate-900">
+                          {itens.find((i) => i.insumo.id === formConsumo.insumo_id)?.saldo || 0}{' '}
+                          {
+                            itens.find((i) => i.insumo.id === formConsumo.insumo_id)?.insumo
+                              .unidade_medida
+                          }
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="cons-qtd">
+                          {formConsumo.tipo === 'ajuste' ? 'Saldo Final Apurado *' : 'Quantidade *'}
+                        </Label>
+                        <Input
+                          id="cons-qtd"
+                          type="number"
+                          step="any"
+                          min={formConsumo.tipo === 'ajuste' ? '0' : '0.01'}
+                          placeholder={
+                            formConsumo.tipo === 'ajuste' ? 'Novo saldo total' : 'Ex.: 2'
+                          }
+                          value={formConsumo.quantidade}
+                          onChange={(e) =>
+                            setFormConsumo({
+                              ...formConsumo,
+                              quantidade: e.target.value === '' ? '' : Number(e.target.value),
+                            })
+                          }
+                          required
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="cons-prof">Profissional Responsável</Label>
+                        <Input
+                          id="cons-prof"
+                          placeholder="Nome do profissional"
+                          value={formConsumo.profissional}
+                          onChange={(e) =>
+                            setFormConsumo({ ...formConsumo, profissional: e.target.value })
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    {formConsumo.tipo === 'consumo' && (
+                      <div className="space-y-1.5">
+                        <Label htmlFor="cons-atend">
+                          Vincular a Atendimento Clínico (Opcional)
+                        </Label>
+                        <Select
+                          value={formConsumo.atendimento_id}
+                          onValueChange={(val) =>
+                            setFormConsumo((prev) => ({ ...prev, atendimento_id: val }))
+                          }
+                        >
+                          <SelectTrigger id="cons-atend">
+                            <SelectValue placeholder="Selecione um atendimento recente..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="nenhum">Nenhum vínculo (Consumo Geral)</SelectItem>
+                            {agendamentos.map((ag) => (
+                              <SelectItem key={ag.id} value={ag.id}>
+                                {ag.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="cons-motivo">
+                        Motivo / Justificativa{' '}
+                        {formConsumo.tipo !== 'consumo' || !formConsumo.atendimento_id ? '*' : ''}
+                      </Label>
+                      <Textarea
+                        id="cons-motivo"
+                        rows={3}
+                        placeholder={
+                          formConsumo.tipo === 'consumo'
+                            ? 'Ex.: Utilizado em restauração classe II (dente 36)'
+                            : formConsumo.tipo === 'perda'
+                              ? 'Ex.: Caixa caiu no chão / Material venceu sem uso'
+                              : 'Ex.: Contagem física de balanço trimestral'
+                        }
+                        value={formConsumo.motivo}
+                        onChange={(e) => setFormConsumo({ ...formConsumo, motivo: e.target.value })}
+                      />
+                    </div>
+
+                    <div className="pt-2 flex justify-end gap-2">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => setAba('insumos')}
+                        disabled={salvando}
+                      >
+                        Cancelar
+                      </Button>
+                      <Button
+                        type="submit"
+                        disabled={salvando}
+                        className="bg-[#0E7490] hover:bg-[#155E75] text-white"
+                      >
+                        {salvando ? 'Processando...' : 'Confirmar Registro'}
+                      </Button>
+                    </div>
+                  </form>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
+        </Tabs>
+
+        {/* Modal de Cadastro / Edição de Insumo */}
+        <Dialog open={modalInsumoOpen} onOpenChange={setModalInsumoOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>
+                {insumoEdicao ? `Editar: ${insumoEdicao.nome}` : 'Novo Insumo Odontológico'}
+              </DialogTitle>
+              <DialogDescription>
+                Cadastre o insumo com estoque mínimo para alertas automáticos no painel.
+              </DialogDescription>
+            </DialogHeader>
+
+            <form onSubmit={salvarInsumo} className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="ins-nome">Nome do Insumo *</Label>
+                <Input
+                  id="ins-nome"
+                  placeholder="Ex.: Resina Composta Z350 XT A2"
+                  value={formInsumo.nome}
+                  onChange={(e) => setFormInsumo({ ...formInsumo, nome: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="ins-cat">Categoria *</Label>
+                  <Select
+                    value={formInsumo.categoria}
+                    onValueChange={(val) =>
+                      setFormInsumo({ ...formInsumo, categoria: val as CategoriaInsumo })
+                    }
+                  >
+                    <SelectTrigger id="ins-cat">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CATEGORIAS_INSUMO.map((cat) => (
+                        <SelectItem key={cat} value={cat}>
+                          {LABEL_CATEGORIA[cat] || cat}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="ins-un">Unidade de Medida *</Label>
+                  <Input
+                    id="ins-un"
+                    placeholder="Ex.: caixa, seringa, frasco, pacote"
+                    value={formInsumo.unidade_medida}
+                    onChange={(e) =>
+                      setFormInsumo({ ...formInsumo, unidade_medida: e.target.value })
+                    }
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="ins-min">Estoque Mínimo (Alerta)</Label>
+                  <Input
+                    id="ins-min"
+                    type="number"
+                    min="0"
+                    value={formInsumo.estoque_minimo}
+                    onChange={(e) =>
+                      setFormInsumo({ ...formInsumo, estoque_minimo: Number(e.target.value) || 0 })
+                    }
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="ins-custo">Custo de Referência (R$)</Label>
+                  <Input
+                    id="ins-custo"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formInsumo.custo_referencia}
+                    onChange={(e) =>
+                      setFormInsumo({
+                        ...formInsumo,
+                        custo_referencia: Number(e.target.value) || 0,
+                      })
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="ins-forn">Fornecedor Preferencial</Label>
+                <Input
+                  id="ins-forn"
+                  placeholder="Ex.: Dental Vip, MedSupply"
+                  value={formInsumo.fornecedor}
+                  onChange={(e) => setFormInsumo({ ...formInsumo, fornecedor: e.target.value })}
+                />
+              </div>
+
+              <div className="flex items-center justify-between p-3 rounded-lg border border-slate-200">
+                <div className="space-y-0.5">
+                  <Label htmlFor="ins-ativo" className="text-sm font-medium">
+                    Insumo Ativo
+                  </Label>
+                  <p className="text-xs text-slate-500">
+                    Insumos inativos não aparecem para novos consumos
+                  </p>
+                </div>
+                <Switch
+                  id="ins-ativo"
+                  checked={formInsumo.ativo}
+                  onCheckedChange={(checked) => setFormInsumo({ ...formInsumo, ativo: checked })}
+                />
+              </div>
+
+              <DialogFooter className="pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setModalInsumoOpen(false)}
+                  disabled={salvando}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={salvando}
+                  className="bg-[#0E7490] hover:bg-[#155E75] text-white"
+                >
+                  {salvando
+                    ? 'Salvando...'
+                    : insumoEdicao
+                      ? 'Salvar Alterações'
+                      : 'Cadastrar Insumo'}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </ModuloGate>
   )
 }
+
+export default EstoquePage

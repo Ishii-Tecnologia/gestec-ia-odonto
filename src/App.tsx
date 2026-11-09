@@ -24,6 +24,7 @@ import FinanceiroPage from './pages/FinanceiroPage'
 import RelatoriosPage from './pages/RelatoriosPage'
 import ComunicacaoPage from './pages/ComunicacaoPage'
 import { DocumentosPage } from './pages/DocumentosPage'
+import EstoquePage from './pages/EstoquePage'
 import AgendamentoPublico from './pages/AgendamentoPublico'
 import OwnerPainel from './pages/OwnerPainel'
 import SuperAdminPainel from './pages/SuperAdminPainel'
@@ -84,6 +85,7 @@ const AppEncapsulado = () => {
                 </RequireProfile>
               }
             />
+            <Route path="/estoque" element={<EstoquePage />} />
             <Route path="/comunicacao" element={<ComunicacaoPage />} />
             <Route path="/relatorios" element={<RelatoriosPage />} />
             <Route path="/configuracoes" element={<OwnerPainel />} />
